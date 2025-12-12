@@ -178,7 +178,7 @@ body {
 }
 
 .message-content-wrapper {
-    flex: 1;
+    flex: 0 1 auto; /* 不强制扩展，根据内容自适应 */
     max-width: 70%;
     min-width: 0; /* 允许内容收缩 */
     position: relative;
@@ -186,6 +186,7 @@ body {
 
 .message.user .message-content-wrapper {
     max-width: 80%; /* 用户消息可以稍微宽一点 */
+    flex: 0 1 auto; /* 用户消息根据内容自适应宽度 */
 }
 
 .message-content {
@@ -196,6 +197,9 @@ body {
     word-break: break-word; /* 允许在单词内换行 */
     overflow-wrap: break-word; /* 确保长单词能够换行 */
     white-space: pre-wrap; /* 保留空格和换行，但允许自动换行 */
+    display: inline-block; /* 让内容根据文本长度自适应 */
+    width: fit-content; /* 根据内容自适应宽度 */
+    max-width: 100%; /* 不超过容器宽度 */
 }
 
 .btn-stop-streaming {
