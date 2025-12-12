@@ -5,6 +5,7 @@
 {% block head %}
 {{ super() }}
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/chat.css') }}">
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/markdown.css') }}">
 {% endblock %}
 
 {% block navbar %}
@@ -67,6 +68,11 @@
 
 {% block scripts %}
 {{ super() }}
+<!-- Marked.js - Markdown 渲染库 (稳定版本 9.1.2) -->
+<script src="https://cdn.jsdelivr.net/npm/marked@9.1.2/marked.min.js"></script>
+<!-- Markdown 渲染模块 -->
+<script src="{{ url_for('static', filename='js/markdown-renderer.js') }}"></script>
+<!-- 聊天主逻辑 -->
 <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
 {% endblock %}
 

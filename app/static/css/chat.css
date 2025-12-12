@@ -144,9 +144,9 @@ body {
 }
 
 .message {
-    margin-bottom: 24px;
+    margin-bottom: 16px;
     display: flex;
-    gap: 16px;
+    gap: 12px;
     align-items: flex-start; /* 顶部对齐 */
 }
 
@@ -190,9 +190,9 @@ body {
 }
 
 .message-content {
-    padding: 12px 16px;
+    padding: 10px 14px;
     border-radius: 8px;
-    line-height: 1.6;
+    line-height: 1.5;
     word-wrap: break-word;
     word-break: break-word; /* 允许在单词内换行 */
     overflow-wrap: break-word; /* 确保长单词能够换行 */
@@ -240,7 +240,53 @@ body {
 .message-time {
     font-size: 12px;
     color: #8e8ea0;
-    margin-top: 4px;
+    margin-top: 2px;
+}
+
+/* 消息切换按钮 */
+.message-toggle-wrapper {
+    margin-top: 6px;
+    display: flex;
+    justify-content: flex-start;
+}
+
+.message.user .message-toggle-wrapper {
+    justify-content: flex-end;
+}
+
+.message-toggle-btn {
+    padding: 4px 12px;
+    background-color: transparent;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    color: #6b7280;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.message.user .message-toggle-btn {
+    border-color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.message-toggle-btn:hover {
+    background-color: #f3f4f6;
+    border-color: #9ca3af;
+    color: #374151;
+}
+
+.message.user .message-toggle-btn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.95);
+}
+
+.message-toggle-btn:active {
+    transform: scale(0.98);
 }
 
 /* 输入区域 */
