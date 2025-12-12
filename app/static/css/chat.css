@@ -199,29 +199,26 @@ body {
 }
 
 .btn-stop-streaming {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    padding: 4px 8px;
-    background-color: rgba(255, 255, 255, 0.9);
-    border: 1px solid #d1d5db;
-    border-radius: 4px;
+    padding: 12px 24px;
+    background-color: #ff6b6b;
+    color: white;
+    border: none;
+    border-radius: 8px;
     cursor: pointer;
-    font-size: 12px;
-    color: #666;
-    transition: all 0.2s;
-    z-index: 10;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background-color 0.2s;
+    white-space: nowrap;
 }
 
 .btn-stop-streaming:hover:not(:disabled) {
-    background-color: #fff;
-    border-color: #19c37d;
-    color: #19c37d;
+    background-color: #ff5252;
 }
 
 .btn-stop-streaming:disabled {
+    background-color: #d1d5db;
     cursor: not-allowed;
-    opacity: 0.5;
+    opacity: 0.7;
 }
 
 .message.user .message-content {

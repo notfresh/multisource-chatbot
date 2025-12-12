@@ -12,6 +12,7 @@ const chatMessages = document.getElementById('chatMessages');
 const welcomeMessage = document.getElementById('welcomeMessage');
 const messageInput = document.getElementById('messageInput');
 const sendButton = document.getElementById('sendButton');
+const stopButton = document.getElementById('stopButton');
 const btnNewConversation = document.getElementById('btnNewConversation');
 
 // 初始化
@@ -20,6 +21,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 事件监听
     sendButton.addEventListener('click', sendMessage);
+    stopButton.addEventListener('click', stopStreaming);
     btnNewConversation.addEventListener('click', createNewConversation);
     
     // Enter 发送，Shift+Enter 换行
@@ -157,7 +159,7 @@ function renderMessages(messages) {
 }
 
 // 创建消息元素
-function createMessageElement(msg, showStopButton = false) {
+function createMessageElement(msg) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${msg.role}`;
     
@@ -171,15 +173,6 @@ function createMessageElement(msg, showStopButton = false) {
     const content = document.createElement('div');
     content.className = 'message-content';
     content.textContent = msg.content;
-    
-    // 如果是AI消息且正在流式输出，添加暂停按钮
-    if (msg.role === 'assistant' && showStopButton) {
-        const stopButton = document.createElement('button');
-        stopButton.className = 'btn-stop-streaming';
-        stopButton.textContent = '⏸ 暂停';
-        stopButton.onclick = () => stopStreaming();
-        contentWrapper.appendChild(stopButton);
-    }
     
     contentWrapper.appendChild(content);
     
@@ -271,10 +264,15 @@ async function sendMessage() {
         content: '',
         created_at: new Date().toISOString()
     };
-    const aiMessageDiv = createMessageElement(aiMessage, true); // 显示暂停按钮
+    const aiMessageDiv = createMessageElement(aiMessage);
     const aiContentDiv = aiMessageDiv.querySelector('.message-content');
     chatMessages.appendChild(aiMessageDiv);
     scrollToBottom();
+    
+    // 显示停止按钮
+    stopButton.style.display = 'block';
+    stopButton.textContent = '⏹ 停止';
+    stopButton.disabled = false;
     
     // 创建 AbortController 用于中断请求
     currentAbortController = new AbortController();
@@ -316,14 +314,14 @@ async function sendMessage() {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let fullContent = ''; // 保存完整内容，用于暂停时保存
+        let fullContent = ''; // 保存完整内容，用于停止时保存
         
         try {
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
                 
-                // 检查是否已暂停
+                // 检查是否已停止
                 if (!isStreaming) {
                     reader.cancel();
                     break;
@@ -346,11 +344,8 @@ async function sendMessage() {
                                 // 流式输出完成
                                 console.log('流式输出完成，消息ID:', data.message_id);
                                 isStreaming = false;
-                                // 移除暂停按钮
-                                const stopButton = aiMessageDiv.querySelector('.btn-stop-streaming');
-                                if (stopButton) {
-                                    stopButton.remove();
-                                }
+                                // 隐藏停止按钮
+                                stopButton.style.display = 'none';
                             } else if (data.type === 'error') {
                                 throw new Error(data.error);
                             }
@@ -399,6 +394,8 @@ async function sendMessage() {
         // 恢复输入和按钮
         messageInput.disabled = false;
         sendButton.disabled = false;
+        // 隐藏停止按钮
+        stopButton.style.display = 'none';
         messageInput.focus();
         currentAbortController = null;
     }
@@ -476,19 +473,15 @@ function scrollToBottom() {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// 停止流式输出
+// 停止流式输出（打断吐字）
 function stopStreaming() {
     if (isStreaming && currentAbortController) {
         isStreaming = false;
         currentAbortController.abort();
         
-        // 更新暂停按钮
-        const stopButtons = document.querySelectorAll('.btn-stop-streaming');
-        stopButtons.forEach(btn => {
-            btn.textContent = '已暂停';
-            btn.disabled = true;
-            btn.style.opacity = '0.5';
-        });
+        // 更新停止按钮
+        stopButton.textContent = '已停止';
+        stopButton.disabled = true;
     }
 }
 
