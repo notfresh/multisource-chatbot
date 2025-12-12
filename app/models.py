@@ -5,7 +5,11 @@ from flask import current_app
 
 from app.db import db
 from werkzeug.security import check_password_hash, generate_password_hash
-from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
+try:
+    from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
+except ImportError:
+    # itsdangerous 2.x 移除了 TimedJSONWebSignatureSerializer，使用 URLSafeTimedSerializer
+    from itsdangerous import URLSafeTimedSerializer as Serializer
 
 from flask_login import UserMixin, AnonymousUserMixin
 
@@ -51,11 +55,14 @@ class User(db.Model, UserMixin):
 
     ###
     def generate_confirmation_token(self, expiration=3600):
-        s = Serializer(current_app.config['SECRET_KEY'], expiration)
+        # 确保 SECRET_KEY 是字符串
+        secret_key = str(current_app.config.get('SECRET_KEY', 'default-secret-key'))
+        s = Serializer(secret_key, expiration)
         return s.dumps({'confirm': self.id})
 
     def confirm(self, token):
-        s = Serializer(current_app.config['SECRET_KEY'])
+        secret_key = str(current_app.config.get('SECRET_KEY', 'default-secret-key'))
+        s = Serializer(secret_key)
         try:
             data = s.loads(token)
         except:
@@ -67,11 +74,13 @@ class User(db.Model, UserMixin):
         return True
 
     def generate_reset_token(self, expiration=3600):
-        s = Serializer(current_app.config['SECRET_KEY'], expiration)
+        secret_key = str(current_app.config.get('SECRET_KEY', 'default-secret-key'))
+        s = Serializer(secret_key, expiration)
         return s.dumps({'reset': self.id})
 
     def reset_password(self, token, new_password):
-        s = Serializer(current_app.config['SECRET_KEY'])
+        secret_key = str(current_app.config.get('SECRET_KEY', 'default-secret-key'))
+        s = Serializer(secret_key)
         try:
             data = s.loads(token)
         except:
@@ -83,11 +92,13 @@ class User(db.Model, UserMixin):
         return True
 
     def generate_email_change_token(self, new_email, expiration=3600):
-        s = Serializer(current_app.config['SECRET_KEY'], expiration)
+        secret_key = str(current_app.config.get('SECRET_KEY', 'default-secret-key'))
+        s = Serializer(secret_key, expiration)
         return s.dumps({'change_email': self.id, 'new_email': new_email})
 
     def change_email(self, token):
-        s = Serializer(current_app.config['SECRET_KEY'])
+        secret_key = str(current_app.config.get('SECRET_KEY', 'default-secret-key'))
+        s = Serializer(secret_key)
         try:
             data = s.loads(token)
         except:
@@ -106,16 +117,53 @@ class User(db.Model, UserMixin):
 
 
     def generate_auth_token(self, expiration):
-        s = Serializer(current_app.config['SECRET_KEY'],
-                       expires_in=expiration)
-        return s.dumps({'id': self.id}).decode('ascii')
+        secret_key = str(current_app.config.get('SECRET_KEY', 'default-secret-key'))
+        s = Serializer(secret_key, expires_in=expiration)
+        token = s.dumps({'id': self.id})
+        # itsdangerous 2.x 返回 bytes，需要解码
+        if isinstance(token, bytes):
+            return token.decode('ascii')
+        return token
 
     @staticmethod
     def verify_auth_token(token):
-        s = Serializer(current_app.config['SECRET_KEY'])
+        secret_key = str(current_app.config.get('SECRET_KEY', 'default-secret-key'))
+        s = Serializer(secret_key)
         try:
+            # 如果 token 是字符串，需要编码
+            if isinstance(token, str):
+                token = token.encode('ascii')
             data = s.loads(token)
         except:
             return None
         return User.query.get(data['id'])
 
+
+class Conversation(db.Model):
+    """会话表 - v0 简化版"""
+    __tablename__ = 'conversations'
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200))  # 会话标题（自动生成或手动设置）
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    # 关联关系
+    messages = db.relationship('Message', backref='conversation', lazy='dynamic', cascade='all, delete-orphan')
+    
+    def __repr__(self):
+        return f'<Conversation {self.id}: {self.title}>'
+
+
+class Message(db.Model):
+    """消息表 - v0 简化版"""
+    __tablename__ = 'messages'
+    id = db.Column(db.Integer, primary_key=True)
+    conversation_id = db.Column(db.Integer, db.ForeignKey('conversations.id'), nullable=False)
+    role = db.Column(db.String(20), nullable=False)  # 'user' 或 'assistant'
+    content = db.Column(db.Text, nullable=False)  # 消息内容
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    order_index = db.Column(db.Integer)  # 消息在会话中的顺序
+    
+    def __repr__(self):
+        return f'<Message {self.id}: {self.role}>'

@@ -13,6 +13,9 @@ class YmlEnv:
             with open(self.path) as config_file:
                 ret = load_yml(config_file)
                 os.environ['FLASK_ENV'] = ret.get('FLASK_ENV') or 'development'
+                # 加载 API Key 到环境变量
+                if ret.get('API_302_AI_KEY'):
+                    os.environ['API_302_AI_KEY'] = ret.get('API_302_AI_KEY')
             return ret
         else:
             raise RuntimeError('Please complete your env.yml')

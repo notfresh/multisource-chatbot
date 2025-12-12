@@ -8,7 +8,7 @@ from flask import jsonify
 from flask import Flask, render_template, flash, url_for, request
 from flask_login import LoginManager, login_required
 from flask_mail import Mail
-from flask_wtf import Form
+from flask_wtf import FlaskForm as Form
 from flask_bootstrap import Bootstrap
 from flask_redis import FlaskRedis
 from flask_login import current_user
@@ -72,12 +72,19 @@ def add_shorten_Urls(url_object):
 def create_app(flask_config='development', **kwargs):
     config_name = os.getenv('FLASK_ENV', flask_config)
     app.config.from_object(CONFIGS[config_name])
-    app.config['SECRET_KEY'] = 'so easy you are'
+    # 确保 SECRET_KEY 是字符串类型
+    if 'SECRET_KEY' not in app.config or not isinstance(app.config['SECRET_KEY'], str):
+        app.config['SECRET_KEY'] = 'so easy you are'
     from . import models # 创建表
     from . import errorhandlers
     errorhandlers.init_app(app)
     from . import db
     db.init_app(app)
+    
+    # 初始化 Flask-Migrate
+    from flask_migrate import Migrate
+    migrate = Migrate(app, db)
+    
     bootstrap = Bootstrap(app)
     # redis_client.init_app(app)
     login_manager.init_app(app)
@@ -85,6 +92,17 @@ def create_app(flask_config='development', **kwargs):
 
     from .auth import auth as auth_blueprint
     app.register_blueprint(auth_blueprint, url_prefix='/auth')
+    
+    # 注册 API 蓝图
+    from .api.routes import api as api_blueprint
+    app.register_blueprint(api_blueprint)
+    
+    # 注册聊天页面路由
+    @app.route('/chat')
+    @login_required
+    def chat():
+        return render_template('chat.html')
+    
     with app.app_context():
         init_shorten_urls(None)
     return app

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}MindLog - 对话{% endblock %}
+
+{% block head %}
+{{ super() }}
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/chat.css') }}">
+{% endblock %}
+
+{% block navbar %}
+<div class="navbar navbar-inverse" role="navigation">
+    <div class="container-fluid">
+        <div class="navbar-header">
+            <a class="navbar-brand" href="{{ url_for('index') }}">MindLog</a>
+        </div>
+        <div class="navbar-collapse collapse">
+            <ul class="nav navbar-nav navbar-right">
+                {% if current_user.is_authenticated %}
+                <li><a href="{{ url_for('index') }}">首页</a></li>
+                <li><a href="{{ url_for('auth.logout') }}">登出</a></li>
+                {% else %}
+                <li><a href="{{ url_for('auth.login') }}">登录</a></li>
+                {% endif %}
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="chat-container">
+    <!-- 左侧会话列表 -->
+    <div class="sidebar">
+        <button class="btn-new-conversation" id="btnNewConversation">
+            <span>+</span> 新对话
+        </button>
+        <div class="conversation-list" id="conversationList">
+            <!-- 会话列表将在这里动态加载 -->
+        </div>
+    </div>
+
+    <!-- 中间聊天区域 -->
+    <div class="chat-main">
+        <div class="chat-messages" id="chatMessages">
+            <!-- 消息将在这里显示 -->
+            <div class="welcome-message" id="welcomeMessage">
+                <h2>欢迎使用 MindLog</h2>
+                <p>选择一个会话开始对话，或创建新对话</p>
+            </div>
+        </div>
+        
+        <div class="chat-input-area">
+            <div class="input-container">
+                <textarea 
+                    id="messageInput" 
+                    placeholder="输入消息... (Enter发送, Shift+Enter换行)"
+                    rows="1"
+                ></textarea>
+                <button id="sendButton" class="btn-send">发送</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+{% endblock %}
+
