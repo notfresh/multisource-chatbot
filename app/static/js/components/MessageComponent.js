@@ -87,10 +87,113 @@ class MessageComponent {
             // 如果是 Markdown 内容，添加 markdown 类名用于样式
             if (containsMarkdown && containsMarkdown(this.originalContent)) {
                 this.contentDiv.classList.add('markdown-content');
+                // 为代码块添加复制按钮
+                this._addCodeBlockCopyButtons();
             }
         } else {
             // 如果 Markdown 渲染器未加载，使用纯文本
             this.contentDiv.textContent = this.originalContent;
+        }
+    }
+    
+    /**
+     * 为代码块添加复制按钮
+     */
+    _addCodeBlockCopyButtons() {
+        const codeBlocks = this.contentDiv.querySelectorAll('pre');
+        codeBlocks.forEach((pre, index) => {
+            // 如果已经有复制按钮，跳过
+            if (pre.querySelector('.code-copy-btn')) {
+                return;
+            }
+            
+            // 创建复制按钮
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'code-copy-btn';
+            copyBtn.textContent = '📋';
+            copyBtn.title = '复制代码';
+            
+            // 获取代码内容
+            const codeElement = pre.querySelector('code');
+            const codeText = codeElement ? codeElement.textContent : pre.textContent;
+            
+            // 绑定点击事件
+            copyBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._copyCodeBlock(codeText, copyBtn);
+            });
+            
+            // 将 pre 设置为相对定位，以便按钮定位
+            if (getComputedStyle(pre).position === 'static') {
+                pre.style.position = 'relative';
+            }
+            
+            // 添加按钮到代码块
+            pre.appendChild(copyBtn);
+        });
+    }
+    
+    /**
+     * 复制代码块内容
+     */
+    _copyCodeBlock(codeText, button) {
+        if (!codeText) {
+            return;
+        }
+        
+        // 使用 Clipboard API 复制
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(codeText).then(() => {
+                // 复制成功反馈
+                const originalText = button.textContent;
+                button.textContent = '✓';
+                button.title = '已复制';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.title = '复制代码';
+                }, 2000);
+            }).catch(err => {
+                console.error('复制失败:', err);
+                this._fallbackCopyCode(codeText, button);
+            });
+        } else {
+            // 降级方案
+            this._fallbackCopyCode(codeText, button);
+        }
+    }
+    
+    /**
+     * 降级复制代码方案
+     */
+    _fallbackCopyCode(codeText, button) {
+        const textArea = document.createElement('textarea');
+        textArea.value = codeText;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        try {
+            const successful = document.execCommand('copy');
+            if (successful) {
+                const originalText = button.textContent;
+                button.textContent = '✓';
+                button.title = '已复制';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.title = '复制代码';
+                }, 2000);
+            } else {
+                alert('复制失败，请手动复制');
+            }
+        } catch (err) {
+            console.error('复制失败:', err);
+            alert('复制失败，请手动复制');
+        } finally {
+            document.body.removeChild(textArea);
         }
     }
     
@@ -153,11 +256,16 @@ class MessageComponent {
             this.contentDiv.innerHTML = renderMarkdown(this.originalContent);
             if (containsMarkdown && containsMarkdown(this.originalContent)) {
                 this.contentDiv.classList.add('markdown-content');
+                // 重新添加代码块复制按钮
+                this._addCodeBlockCopyButtons();
             }
             toggleButton.element.textContent = '📝 查看 Markdown';
             toggleButton.element.title = '切换显示 Markdown 原始文本';
             this.isRendered = true;
         }
+        
+        // 同步 actionBar 宽度（切换后内容宽度可能变化）
+        this._syncActionBarWidth();
         
         // 触发回调
         if (this.onAction) {
@@ -337,6 +445,8 @@ class MessageComponent {
                 // 检查是否需要显示切换按钮
                 if (containsMarkdown && containsMarkdown(newContent)) {
                     this.contentDiv.classList.add('markdown-content');
+                    // 为代码块添加复制按钮
+                    this._addCodeBlockCopyButtons();
                     // 如果还没有切换按钮，添加一个
                     if (!this.buttons.has('toggle-markdown')) {
                         this.addActionButton({

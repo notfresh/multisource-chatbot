@@ -90,7 +90,7 @@
 .markdown-content code {
     padding: 0.2em 0.4em;
     margin: 0;
-    font-size: 85%;
+    font-size: 95%;
     background-color: rgba(27, 31, 35, 0.05);
     border-radius: 3px;
     font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
@@ -107,8 +107,9 @@
     overflow: auto;
     background-color: #f6f8fa;
     border-radius: 6px;
-    font-size: 85%;
+    font-size: 95%;
     line-height: 1.45;
+    position: relative;
 }
 
 .message.user .markdown-content pre {
@@ -135,6 +136,41 @@
     white-space: pre;
     background: transparent;
     border: 0;
+}
+
+/* 代码块复制按钮 */
+.markdown-content pre .code-copy-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    padding: 4px 8px;
+    background-color: rgba(0, 0, 0, 0.1);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+    color: #333;
+    cursor: pointer;
+    font-size: 14px;
+    opacity: 0;
+    transition: opacity 0.2s, background-color 0.2s;
+    z-index: 10;
+}
+
+.markdown-content pre:hover .code-copy-btn {
+    opacity: 1;
+}
+
+.markdown-content pre .code-copy-btn:hover {
+    background-color: rgba(0, 0, 0, 0.2);
+}
+
+.message.user .markdown-content pre .code-copy-btn {
+    background-color: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.message.user .markdown-content pre .code-copy-btn:hover {
+    background-color: rgba(255, 255, 255, 0.3);
 }
 
 .markdown-content a {
