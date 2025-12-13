@@ -158,87 +158,21 @@ function renderMessages(messages) {
     scrollToBottom();
 }
 
+// 消息组件实例存储（用于流式输出时更新内容）
+const messageComponentMap = new WeakMap();
+
 // 创建消息元素
+// 内部使用 MessageComponent，但保持接口不变（返回 DOM 元素）
 function createMessageElement(msg) {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${msg.role}`;
+    // 使用组件创建消息
+    const messageComponent = new MessageComponent({
+        message: msg
+    });
     
-    const avatar = document.createElement('div');
-    avatar.className = 'message-avatar';
-    avatar.textContent = msg.role === 'user' ? 'U' : 'AI';
+    const messageDiv = messageComponent.getElement();
     
-    const contentWrapper = document.createElement('div');
-    contentWrapper.className = 'message-content-wrapper';
-    
-    const content = document.createElement('div');
-    content.className = 'message-content';
-    
-    // 保存原始内容
-    const originalContent = msg.content;
-    // 将原始内容存储到数据属性中，方便切换按钮访问
-    messageDiv.dataset.originalContent = originalContent;
-    
-    // 使用 Markdown 渲染器渲染内容
-    if (typeof renderMarkdown !== 'undefined') {
-        content.innerHTML = renderMarkdown(originalContent);
-        // 如果是 Markdown 内容，添加 markdown 类名用于样式
-        if (containsMarkdown && containsMarkdown(originalContent)) {
-            content.classList.add('markdown-content');
-        }
-    } else {
-        // 如果 Markdown 渲染器未加载，使用纯文本
-        content.textContent = originalContent;
-    }
-    
-    contentWrapper.appendChild(content);
-    
-    // 添加切换按钮（只在有 markdown 内容时显示）
-    const hasMarkdown = typeof containsMarkdown !== 'undefined' && containsMarkdown(originalContent);
-    if (hasMarkdown) {
-        const toggleWrapper = document.createElement('div');
-        toggleWrapper.className = 'message-toggle-wrapper';
-        
-        const toggleButton = document.createElement('button');
-        toggleButton.className = 'message-toggle-btn';
-        toggleButton.textContent = '📝 查看 Markdown';
-        toggleButton.title = '切换显示 Markdown 原始文本';
-        
-        toggleButton.addEventListener('click', function() {
-            const originalContent = messageDiv.dataset.originalContent || '';
-            const contentDiv = messageDiv.querySelector('.message-content');
-            const isRendered = contentDiv.classList.contains('markdown-content');
-            
-            if (isRendered) {
-                // 切换到 Markdown 原始文本
-                contentDiv.textContent = originalContent;
-                contentDiv.classList.remove('markdown-content');
-                toggleButton.textContent = '👁 查看渲染';
-                toggleButton.title = '切换显示渲染后的内容';
-            } else {
-                // 切换到渲染后的内容
-                contentDiv.innerHTML = renderMarkdown(originalContent);
-                if (containsMarkdown && containsMarkdown(originalContent)) {
-                    contentDiv.classList.add('markdown-content');
-                }
-                toggleButton.textContent = '📝 查看 Markdown';
-                toggleButton.title = '切换显示 Markdown 原始文本';
-            }
-        });
-        
-        toggleWrapper.appendChild(toggleButton);
-        contentWrapper.appendChild(toggleWrapper);
-    }
-    
-    const time = document.createElement('div');
-    time.className = 'message-time';
-    if (msg.created_at) {
-        const date = new Date(msg.created_at);
-        time.textContent = date.toLocaleString('zh-CN');
-    }
-    
-    messageDiv.appendChild(avatar);
-    messageDiv.appendChild(contentWrapper);
-    messageDiv.appendChild(time);
+    // 将组件实例存储到 DOM 元素上，方便后续访问
+    messageComponentMap.set(messageDiv, messageComponent);
     
     return messageDiv;
 }
@@ -318,11 +252,8 @@ async function sendMessage() {
         created_at: new Date().toISOString()
     };
     const aiMessageDiv = createMessageElement(aiMessage);
-    const aiContentDiv = aiMessageDiv.querySelector('.message-content');
-    const aiContentWrapper = aiMessageDiv.querySelector('.message-content-wrapper');
-    let aiIsRendered = true; // AI消息当前是否显示渲染后的内容
-    // 将原始内容存储到数据属性中，方便切换按钮访问
-    aiMessageDiv.dataset.originalContent = '';
+    // 获取组件实例，用于流式更新
+    const aiMessageComponent = messageComponentMap.get(aiMessageDiv);
     chatMessages.appendChild(aiMessageDiv);
     scrollToBottom();
     
@@ -395,59 +326,12 @@ async function sendMessage() {
                             if (data.type === 'chunk') {
                                 // 追加内容到AI消息
                                 fullContent += data.chunk;
-                                // 更新数据属性中的原始内容
-                                aiMessageDiv.dataset.originalContent = fullContent;
                                 
-                                // 如果当前显示的是渲染后的内容，则更新渲染
-                                if (aiIsRendered) {
-                                    // 使用 Markdown 渲染器实时更新内容
-                                    if (typeof renderMarkdown !== 'undefined') {
-                                        aiContentDiv.innerHTML = renderMarkdown(fullContent);
-                                        if (containsMarkdown && containsMarkdown(fullContent)) {
-                                            aiContentDiv.classList.add('markdown-content');
-                                            // 如果之前没有切换按钮，现在有了 markdown，需要添加切换按钮
-                                            if (!aiMessageDiv.querySelector('.message-toggle-wrapper') && aiContentWrapper) {
-                                                const toggleWrapper = document.createElement('div');
-                                                toggleWrapper.className = 'message-toggle-wrapper';
-                                                
-                                                const toggleButton = document.createElement('button');
-                                                toggleButton.className = 'message-toggle-btn';
-                                                toggleButton.textContent = '📝 查看 Markdown';
-                                                toggleButton.title = '切换显示 Markdown 原始文本';
-                                                
-                                                toggleButton.addEventListener('click', function() {
-                                                    const originalContent = aiMessageDiv.dataset.originalContent || '';
-                                                    const contentDiv = aiMessageDiv.querySelector('.message-content');
-                                                    const isRendered = contentDiv.classList.contains('markdown-content');
-                                                    
-                                                    if (isRendered) {
-                                                        // 切换到 Markdown 原始文本
-                                                        contentDiv.textContent = originalContent;
-                                                        contentDiv.classList.remove('markdown-content');
-                                                        toggleButton.textContent = '👁 查看渲染';
-                                                        toggleButton.title = '切换显示渲染后的内容';
-                                                    } else {
-                                                        // 切换到渲染后的内容
-                                                        contentDiv.innerHTML = renderMarkdown(originalContent);
-                                                        if (containsMarkdown && containsMarkdown(originalContent)) {
-                                                            contentDiv.classList.add('markdown-content');
-                                                        }
-                                                        toggleButton.textContent = '📝 查看 Markdown';
-                                                        toggleButton.title = '切换显示 Markdown 原始文本';
-                                                    }
-                                                });
-                                                
-                                                toggleWrapper.appendChild(toggleButton);
-                                                aiContentWrapper.appendChild(toggleWrapper);
-                                            }
-                                        }
-                                    } else {
-                                        aiContentDiv.textContent = fullContent;
-                                    }
-                                } else {
-                                    // 如果当前显示的是原始文本，直接更新文本
-                                    aiContentDiv.textContent = fullContent;
+                                // 使用组件更新内容
+                                if (aiMessageComponent) {
+                                    aiMessageComponent.updateContent(fullContent);
                                 }
+                                
                                 scrollToBottom();
                             } else if (data.type === 'done') {
                                 // 流式输出完成
@@ -456,8 +340,10 @@ async function sendMessage() {
                                 // 隐藏停止按钮
                                 stopButton.style.display = 'none';
                                 
-                                // 确保最终内容已保存到数据属性
-                                aiMessageDiv.dataset.originalContent = fullContent;
+                                // 确保最终内容已更新（组件内部已处理）
+                                if (aiMessageComponent && fullContent) {
+                                    aiMessageComponent.updateContent(fullContent);
+                                }
                             } else if (data.type === 'error') {
                                 throw new Error(data.error);
                             }
