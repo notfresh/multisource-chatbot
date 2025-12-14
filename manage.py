@@ -1,26 +1,58 @@
 # -*- coding:utf-8 -*-
+"""
+Flask CLI 管理脚本
+替代了旧的 Flask-Script，使用 Flask 2.0+ 内置的 CLI 支持
+
+使用方法：
+    python manage.py db upgrade      # 数据库升级
+    python manage.py db migrate      # 创建迁移
+    python manage.py runserver       # 运行开发服务器
+    python manage.py shell           # 打开 Python shell
+"""
+import os
+import sys
+from flask.cli import FlaskGroup, with_appcontext
 from flask import current_app
-from datetime import datetime, timedelta
-from flask_script import Manager, Shell
-from flask_migrate import Migrate, MigrateCommand
-from sqlalchemy import func
-from app import create_app,ShortURL, User
-from app.models import Conversation, Message
+import click
+from app import create_app
+from app.models import ShortURL, User, Conversation, Message
 from app.db import db
 
-app = create_app('development')
-manager = Manager(app)
+def create_app_for_cli(info=None):
+    """为 Flask CLI 创建应用实例"""
+    app = create_app('development')
+    
+    # 在应用实例上注册 shell 上下文处理器
+    @app.shell_context_processor
+    def make_shell_context():
+        """为 Flask shell 命令提供上下文"""
+        return dict(
+            app=app,
+            db=db,
+            ShortURL=ShortURL,
+            User=User,
+            Conversation=Conversation,
+            Message=Message
+        )
+    
+    return app
 
-def make_shell_context():
-    return dict(app=app, db=db, ShortURL=ShortURL, User=User, Conversation=Conversation, Message=Message)
+# 创建 Flask CLI 组
+cli = FlaskGroup(create_app=create_app_for_cli)
 
-manager.add_command('shell', Shell(make_context=make_shell_context))
-
-migrate = Migrate(app, db)
-manager.add_command('db', MigrateCommand)
+# 添加自定义 runserver 命令以保持向后兼容
+@cli.command('runserver')
+@click.option('--host', '-h', default='0.0.0.0', help='服务器主机地址')
+@click.option('--port', '-p', default=8000, type=int, help='服务器端口')
+@with_appcontext
+def runserver(host, port):
+    """运行开发服务器"""
+    current_app.run(host=host, port=port, debug=True)
 
 if __name__ == '__main__':
-    manager.run()
+    # 设置 FLASK_APP 环境变量以便 Flask-Migrate 能找到应用
+    os.environ['FLASK_APP'] = 'manage:app'
+    cli()
 
 
 
