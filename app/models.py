@@ -164,6 +164,7 @@ class Message(db.Model):
     content = db.Column(db.Text, nullable=False)  # 消息内容
     created_at = db.Column(db.DateTime, default=datetime.now)
     order_index = db.Column(db.Integer)  # 消息在会话中的顺序
+    model = db.Column(db.String(50), nullable=False, default='deepseek-chat')  # 模型标识：'deepseek-chat', 'qwen-max' 等
     
     def __repr__(self):
         return f'<Message {self.id}: {self.role}>'

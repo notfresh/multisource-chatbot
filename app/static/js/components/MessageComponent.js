@@ -43,6 +43,10 @@ class MessageComponent {
         
         // 存储原始内容到数据属性
         messageDiv.dataset.originalContent = this.originalContent;
+        // 存储消息ID，用于按需查询
+        if (this.message.id) {
+            messageDiv.dataset.messageId = this.message.id;
+        }
         
         // 头像
         const avatar = document.createElement('div');
@@ -54,10 +58,49 @@ class MessageComponent {
         const contentWrapper = document.createElement('div');
         contentWrapper.className = 'message-content-wrapper';
         
-        // 内容区域
-        this.contentDiv = document.createElement('div');
-        this.contentDiv.className = 'message-content';
-        contentWrapper.appendChild(this.contentDiv);
+        // 如果是assistant消息，支持多模型回答结构
+        if (this.message.role === 'assistant') {
+            // 主回答区域（当前模型的回答）
+            const mainResponseDiv = document.createElement('div');
+            mainResponseDiv.className = 'model-response main-response';
+            mainResponseDiv.dataset.model = this.message.model || 'deepseek-chat';
+            mainResponseDiv.dataset.expanded = 'true'; // 默认展开
+            
+            // 模型标签（可点击，用于展开/折叠）
+            const modelLabel = document.createElement('div');
+            modelLabel.className = 'model-label clickable';
+            modelLabel.innerHTML = `
+                <span class="model-label-text">${this._getModelDisplayName(this.message.model || 'deepseek-chat')}</span>
+                <span class="expand-icon">▲</span>
+            `;
+            modelLabel.addEventListener('click', () => this._toggleMainResponse(mainResponseDiv));
+            mainResponseDiv.appendChild(modelLabel);
+            
+            // 内容包装器（用于折叠动画）
+            const mainContentWrapper = document.createElement('div');
+            mainContentWrapper.className = 'main-content-wrapper';
+            
+            // 内容区域
+            this.contentDiv = document.createElement('div');
+            this.contentDiv.className = 'message-content';
+            mainContentWrapper.appendChild(this.contentDiv);
+            mainResponseDiv.appendChild(mainContentWrapper);
+            
+            contentWrapper.appendChild(mainResponseDiv);
+            
+            // 如果有alternative_responses，渲染它们
+            if (this.message.alternative_responses && this.message.alternative_responses.length > 0) {
+                this.message.alternative_responses.forEach(altResponse => {
+                    const altResponseDiv = this._createAlternativeResponseElement(altResponse);
+                    contentWrapper.appendChild(altResponseDiv);
+                });
+            }
+        } else {
+            // 用户消息：普通结构
+            this.contentDiv = document.createElement('div');
+            this.contentDiv.className = 'message-content';
+            contentWrapper.appendChild(this.contentDiv);
+        }
         
         // 操作按钮栏（初始为空）
         this.actionBar = document.createElement('div');
@@ -76,6 +119,113 @@ class MessageComponent {
         messageDiv.appendChild(time);
         
         return messageDiv;
+    }
+    
+    /**
+     * 创建替代回答的元素
+     */
+    _createAlternativeResponseElement(altResponse) {
+        const altResponseDiv = document.createElement('div');
+        altResponseDiv.className = 'model-response alternative-response collapsed';
+        altResponseDiv.dataset.model = altResponse.model || 'qwen-max';
+        altResponseDiv.dataset.messageId = altResponse.id;
+        altResponseDiv.dataset.expanded = 'false'; // 默认折叠
+        
+        // 模型标签（可点击，用于展开/折叠）
+        const modelLabel = document.createElement('div');
+        modelLabel.className = 'model-label clickable';
+        modelLabel.innerHTML = `
+            <span class="model-label-text">${this._getModelDisplayName(altResponse.model)}</span>
+            <span class="expand-icon">▼</span>
+        `;
+        modelLabel.addEventListener('click', () => this._toggleAlternativeResponse(altResponseDiv));
+        altResponseDiv.appendChild(modelLabel);
+        
+        // 内容包装器（用于折叠动画）
+        const contentWrapper = document.createElement('div');
+        contentWrapper.className = 'alternative-content-wrapper';
+        
+        // 内容区域
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        if (altResponse.content) {
+            if (typeof renderMarkdown !== 'undefined') {
+                contentDiv.innerHTML = renderMarkdown(altResponse.content);
+                if (containsMarkdown && containsMarkdown(altResponse.content)) {
+                    contentDiv.classList.add('markdown-content');
+                }
+            } else {
+                contentDiv.textContent = altResponse.content;
+            }
+        } else {
+            // 如果内容为空，显示加载提示
+            contentDiv.textContent = '正在生成...';
+            contentDiv.classList.add('loading-placeholder');
+        }
+        contentWrapper.appendChild(contentDiv);
+        altResponseDiv.appendChild(contentWrapper);
+        
+        return altResponseDiv;
+    }
+    
+    /**
+     * 切换主回答的展开/折叠状态
+     */
+    _toggleMainResponse(mainResponseDiv) {
+        const isExpanded = mainResponseDiv.dataset.expanded === 'true';
+        const expandIcon = mainResponseDiv.querySelector('.expand-icon');
+        
+        if (isExpanded) {
+            // 折叠
+            mainResponseDiv.classList.add('collapsed');
+            mainResponseDiv.dataset.expanded = 'false';
+            if (expandIcon) {
+                expandIcon.textContent = '▼';
+            }
+        } else {
+            // 展开
+            mainResponseDiv.classList.remove('collapsed');
+            mainResponseDiv.dataset.expanded = 'true';
+            if (expandIcon) {
+                expandIcon.textContent = '▲';
+            }
+        }
+    }
+    
+    /**
+     * 切换替代回答的展开/折叠状态
+     */
+    _toggleAlternativeResponse(altResponseDiv) {
+        const isExpanded = altResponseDiv.dataset.expanded === 'true';
+        const expandIcon = altResponseDiv.querySelector('.expand-icon');
+        const contentWrapper = altResponseDiv.querySelector('.alternative-content-wrapper');
+        
+        if (isExpanded) {
+            // 折叠
+            altResponseDiv.classList.add('collapsed');
+            altResponseDiv.dataset.expanded = 'false';
+            if (expandIcon) {
+                expandIcon.textContent = '▼';
+            }
+        } else {
+            // 展开
+            altResponseDiv.classList.remove('collapsed');
+            altResponseDiv.dataset.expanded = 'true';
+            if (expandIcon) {
+                expandIcon.textContent = '▲';
+            }
+        }
+    }
+    
+    /**
+     * 获取模型显示名称
+     */
+    _getModelDisplayName(model) {
+        const modelNames = {
+            'deepseek-chat': 'DeepSeek',
+            'qwen-max': '通义千问'
+        };
+        return modelNames[model] || model;
     }
     
     /**
@@ -209,6 +359,24 @@ class MessageComponent {
      * 初始化默认操作按钮
      */
     _initDefaultActions() {
+        // 如果是assistant消息，且是deepseek-chat模型，添加"查看通义千问回答"按钮
+        if (this.message.role === 'assistant' && 
+            (this.message.model === 'deepseek-chat' || !this.message.model)) {
+            // 检查是否已经有通义千问的回答
+            const hasQwenResponse = this.message.alternative_responses && 
+                this.message.alternative_responses.some(r => r.model === 'qwen-max');
+            
+            if (!hasQwenResponse) {
+                this.addActionButton({
+                    id: 'view-qwen',
+                    text: '🔍 查看通义千问回答',
+                    title: '查看通义千问对这个问题的回答',
+                    className: 'message-action-btn view-alternative-btn',
+                    onClick: () => this._requestAlternativeModel('qwen-max')
+                });
+            }
+        }
+        
         // 如果有 Markdown 内容，添加切换按钮
         if (typeof containsMarkdown !== 'undefined' && containsMarkdown(this.originalContent)) {
             this.addActionButton({
@@ -238,6 +406,135 @@ class MessageComponent {
     }
     
     /**
+     * 请求替代模型的回答
+     */
+    _requestAlternativeModel(modelName) {
+        // 禁用按钮，防止重复请求
+        const button = this.buttons.get('view-qwen');
+        if (button) {
+            button.element.disabled = true;
+            button.element.textContent = '⏳ 正在生成...';
+        }
+        
+        // 调用全局函数（在chat.js中定义）
+        if (typeof requestAlternativeModel === 'function') {
+            requestAlternativeModel(this.message.id, modelName, this);
+        } else {
+            console.error('requestAlternativeModel 函数未定义');
+            if (button) {
+                button.element.disabled = false;
+                button.element.textContent = '🔍 查看通义千问回答';
+            }
+        }
+    }
+    
+    /**
+     * 添加替代模型的回答
+     */
+    addAlternativeResponse(altResponse) {
+        // 如果还没有alternative_responses数组，创建它
+        if (!this.message.alternative_responses) {
+            this.message.alternative_responses = [];
+        }
+        
+        // 检查是否已存在相同模型的回答
+        const existingIndex = this.message.alternative_responses.findIndex(
+            r => r.model === altResponse.model
+        );
+        
+        if (existingIndex >= 0) {
+            // 更新现有回答
+            this.message.alternative_responses[existingIndex] = altResponse;
+        } else {
+            // 添加新回答
+            this.message.alternative_responses.push(altResponse);
+        }
+        
+        // 在DOM中添加替代回答区域
+        const contentWrapper = this.rootElement.querySelector('.message-content-wrapper');
+        if (contentWrapper) {
+            // 检查是否已存在该模型的回答区域
+            const existingAltResponse = contentWrapper.querySelector(
+                `.alternative-response[data-model="${altResponse.model}"]`
+            );
+            
+            if (existingAltResponse) {
+                // 更新现有区域
+                const contentDiv = existingAltResponse.querySelector('.message-content');
+                if (contentDiv) {
+                    // 移除加载提示
+                    contentDiv.classList.remove('loading-placeholder');
+                    
+                    if (altResponse.content) {
+                        if (typeof renderMarkdown !== 'undefined') {
+                            contentDiv.innerHTML = renderMarkdown(altResponse.content);
+                            if (containsMarkdown && containsMarkdown(altResponse.content)) {
+                                contentDiv.classList.add('markdown-content');
+                            }
+                        } else {
+                            contentDiv.textContent = altResponse.content;
+                        }
+                    }
+                }
+            } else {
+                // 创建新的替代回答区域
+                const altResponseDiv = this._createAlternativeResponseElement(altResponse);
+                // 插入到操作按钮栏之前
+                contentWrapper.insertBefore(altResponseDiv, this.actionBar);
+            }
+        }
+        
+        // 移除"查看通义千问回答"按钮（如果已添加）
+        if (altResponse.model === 'qwen-max') {
+            this.removeActionButton('view-qwen');
+        }
+    }
+    
+    /**
+     * 更新替代回答的内容（用于流式输出）
+     */
+    updateAlternativeResponse(modelName, content) {
+        const contentWrapper = this.rootElement.querySelector('.message-content-wrapper');
+        if (!contentWrapper) return;
+        
+        let altResponseDiv = contentWrapper.querySelector(
+            `.alternative-response[data-model="${modelName}"]`
+        );
+        
+        // 如果区域不存在，创建一个（流式输出开始时可能还没有创建）
+        if (!altResponseDiv) {
+            const altResponse = {
+                model: modelName,
+                content: content,
+                id: null
+            };
+            this.addAlternativeResponse(altResponse);
+            altResponseDiv = contentWrapper.querySelector(
+                `.alternative-response[data-model="${modelName}"]`
+            );
+        }
+        
+        if (altResponseDiv) {
+            const contentDiv = altResponseDiv.querySelector('.message-content');
+            if (contentDiv) {
+                // 移除加载提示
+                contentDiv.classList.remove('loading-placeholder');
+                
+                if (content) {
+                    if (typeof renderMarkdown !== 'undefined') {
+                        contentDiv.innerHTML = renderMarkdown(content);
+                        if (containsMarkdown && containsMarkdown(content)) {
+                            contentDiv.classList.add('markdown-content');
+                        }
+                    } else {
+                        contentDiv.textContent = content;
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
      * 切换 Markdown 显示
      */
     _toggleMarkdown() {
@@ -263,9 +560,6 @@ class MessageComponent {
             toggleButton.element.title = '切换显示 Markdown 原始文本';
             this.isRendered = true;
         }
-        
-        // 同步 actionBar 宽度（切换后内容宽度可能变化）
-        this._syncActionBarWidth();
         
         // 触发回调
         if (this.onAction) {

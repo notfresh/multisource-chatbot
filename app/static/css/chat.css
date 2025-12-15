@@ -421,3 +421,129 @@ body {
     background: #6e6e80;
 }
 
+/* 多模型回答样式 */
+.model-response {
+    margin-bottom: 12px;
+    position: relative;
+}
+
+.model-response.main-response {
+    /* 主回答区域 */
+}
+
+/* 主回答内容包装器 - 用于折叠动画 */
+.main-content-wrapper {
+    max-height: 2000px;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
+    opacity: 1;
+}
+
+.model-response.main-response.collapsed .main-content-wrapper {
+    max-height: 0;
+    opacity: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+.model-response.alternative-response {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #e5e5e5;
+}
+
+.model-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #6b7280;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.model-label::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #19c37d;
+}
+
+.model-label.clickable {
+    cursor: pointer;
+    user-select: none;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.model-label.clickable:hover {
+    background-color: #f3f4f6;
+}
+
+.model-label-text {
+    flex: 1;
+}
+
+.expand-icon {
+    font-size: 10px;
+    transition: transform 0.2s;
+    color: #9ca3af;
+}
+
+.model-response[data-model="qwen-max"] .model-label::before {
+    background-color: #ff6b6b;
+}
+
+.model-response[data-model="deepseek-chat"] .model-label::before {
+    background-color: #19c37d;
+}
+
+/* 替代回答内容包装器 - 用于折叠动画 */
+.alternative-content-wrapper {
+    max-height: 2000px;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
+    opacity: 1;
+}
+
+.model-response.alternative-response.collapsed .alternative-content-wrapper {
+    max-height: 0;
+    opacity: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+/* 加载占位符样式 */
+.loading-placeholder {
+    color: #9ca3af;
+    font-style: italic;
+}
+
+/* 查看替代回答按钮样式 */
+.view-alternative-btn {
+    background-color: #f3f4f6;
+    border-color: #d1d5db;
+    color: #374151;
+}
+
+.view-alternative-btn:hover {
+    background-color: #e5e7eb;
+    border-color: #9ca3af;
+    color: #111827;
+}
+
+.view-alternative-btn:disabled {
+    background-color: #f3f4f6;
+    border-color: #d1d5db;
+    color: #9ca3af;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+

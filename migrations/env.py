@@ -46,8 +46,11 @@ def run_migrations_offline():
 
     """
     url = config.get_main_option("sqlalchemy.url")
+    # 检测是否为 SQLite，如果是则启用 batch mode
+    is_sqlite = url and url.startswith('sqlite')
     context.configure(
-        url=url, target_metadata=target_metadata, literal_binds=True
+        url=url, target_metadata=target_metadata, literal_binds=True,
+        render_as_batch=is_sqlite
     )
 
     with context.begin_transaction():
@@ -79,10 +82,13 @@ def run_migrations_online():
     )
 
     with connectable.connect() as connection:
+        # 检测是否为 SQLite，如果是则启用 batch mode
+        is_sqlite = connection.dialect.name == 'sqlite'
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
             process_revision_directives=process_revision_directives,
+            render_as_batch=is_sqlite,
             **current_app.extensions['migrate'].configure_args
         )
 

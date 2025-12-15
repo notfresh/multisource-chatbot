@@ -23,8 +23,9 @@ def upgrade():
     # 步骤2：更新所有现有消息的 model 字段
     op.execute("UPDATE messages SET model = 'deepseek-chat' WHERE model IS NULL")
     
-    # 步骤3：将字段设置为必填
-    op.alter_column('messages', 'model', nullable=False)
+    # 步骤3：将字段设置为必填（SQLite 需要使用 batch mode）
+    with op.batch_alter_table('messages', schema=None) as batch_op:
+        batch_op.alter_column('model', nullable=False)
 
 
 def downgrade():

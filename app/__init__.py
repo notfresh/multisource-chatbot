@@ -94,7 +94,7 @@ def create_app(flask_config='development', **kwargs):
     app.register_blueprint(auth_blueprint, url_prefix='/auth')
     
     # 注册 API 蓝图
-    from .api.routes import api as api_blueprint
+    from .api import api as api_blueprint
     app.register_blueprint(api_blueprint)
     
     # 注册聊天页面路由
