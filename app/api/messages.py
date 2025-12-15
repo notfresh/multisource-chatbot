@@ -40,7 +40,7 @@ def send_message(conversation_id):
         conversation_id=conversation_id,
         role='user',
         content=user_content,
-        order_index=message_count * 2,
+        order_index=message_count * 2, # TODO
         model='deepseek-chat'  # 用户消息也设置 model 字段
     )
     db.session.add(user_message)
@@ -111,10 +111,13 @@ def send_message(conversation_id):
     )
 
 
-@api.route('/conversations/<int:conversation_id>/messages/<int:message_id>/alternative', methods=['POST'])
+@api.route('/conversations/<int:conversation_id>/messages/<int:message_id>/responses', methods=['POST'])
 @login_required
-def get_alternative_model_response(conversation_id, message_id):
-    """按需查询另一个模型的回答"""
+def generate_model_response(conversation_id, message_id):
+    """
+    为指定用户消息生成模型回答（Peer 架构）
+    接受用户消息 ID，为该用户消息生成指定模型的回答
+    """
     # 验证会话是否存在和所有权
     conversation = Conversation.query.get(conversation_id)
     if not conversation:
@@ -122,39 +125,50 @@ def get_alternative_model_response(conversation_id, message_id):
     if conversation.user_id != current_user.id:
         return jsonify({'error': 'Unauthorized'}), 403
     
-    # 验证目标消息是否存在且属于当前会话
-    target_message = Message.query.get(message_id)
-    if not target_message:
+    # 验证用户消息是否存在且属于当前会话
+    user_message = Message.query.get(message_id)
+    if not user_message:
         return jsonify({'error': '消息不存在'}), 404
-    if target_message.conversation_id != conversation_id:
+    if user_message.conversation_id != conversation_id:
         return jsonify({'error': '消息不属于当前会话'}), 400
-    if target_message.role != 'assistant':
-        return jsonify({'error': '只能为 assistant 消息查询替代回答'}), 400
+    if user_message.role != 'user':
+        return jsonify({'error': '只能为用户消息生成模型回答'}), 400
     
     # 获取请求参数
     data = request.get_json() or {}
     model_name = data.get('model', 'qwen-max')  # 默认使用 qwen-max
     
-    # 获取该消息对应的用户消息
-    # 找到该 assistant 消息之前的最近一条用户消息
-    user_message = Message.query.filter_by(
-        conversation_id=conversation_id
+    # 检查是否已经存在该模型的回答
+    existing_response = Message.query.filter_by(
+        conversation_id=conversation_id,
+        role='assistant',
+        model=model_name
     ).filter(
-        Message.order_index < target_message.order_index,
-        Message.role == 'user'
-    ).order_by(Message.order_index.desc()).first()
+        Message.order_index > user_message.order_index
+    ).order_by(Message.order_index.asc()).first()
     
-    if not user_message:
-        return jsonify({'error': '找不到对应的用户消息'}), 400
+    # 如果已存在该模型的回答，返回错误
+    if existing_response:
+        # 检查是否是在该用户消息之后生成的
+        next_user_message = Message.query.filter_by(
+            conversation_id=conversation_id,
+            role='user'
+        ).filter(
+            Message.order_index > user_message.order_index
+        ).order_by(Message.order_index.asc()).first()
+        
+        if not next_user_message or existing_response.order_index < next_user_message.order_index:
+            return jsonify({'error': f'该用户消息已有 {model_name} 模型的回答'}), 400
     
     # 使用流式输出
     def generate_stream():
         assistant_content = ""
         try:
-            # 生成流式回答
-            for chunk in chat_manager.generate_alternative_model_response(
+            # 生成流式回答（使用指定模型）
+            # 构建内存时，排除该用户消息之后的所有 assistant 消息（因为它们是对该用户消息的回答）
+            for chunk in chat_manager.generate_response_for_user_message(
                 conversation_id,
-                message_id,  # target_message_id
+                user_message.id,
                 user_message.content,
                 model_name,
                 stream=True

@@ -69,11 +69,71 @@
 {% block scripts %}
 {{ super() }}
 <!-- Marked.js - Markdown 渲染库 (稳定版本 9.1.2) -->
-<script src="https://cdn.jsdelivr.net/npm/marked@9.1.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@9.1.2/marked.min.js" 
+        onerror="console.error('Marked.js 加载失败，使用备用方案'); window.marked = { parse: function(text) { return text; } };"></script>
 <!-- Markdown 渲染模块 -->
 <script src="{{ url_for('static', filename='js/markdown-renderer.js') }}"></script>
+
+<!-- ==================== 基础设施层 ==================== -->
+<!-- DOM 工具 -->
+<script src="{{ url_for('static', filename='js/utils/DOMUtils.js') }}"></script>
+<!-- 事件工具 -->
+<script src="{{ url_for('static', filename='js/utils/EventUtils.js') }}"></script>
+<!-- 剪贴板服务 -->
+<script src="{{ url_for('static', filename='js/services/ClipboardService.js') }}"></script>
+<!-- 工具函数 -->
+<script src="{{ url_for('static', filename='js/utils/Utils.js') }}"></script>
+<!-- 消息组织工具 -->
+<script src="{{ url_for('static', filename='js/utils/messageOrganizer.js') }}"></script>
+
+<!-- ==================== 状态层 ==================== -->
+<!-- 聊天状态管理 -->
+<script src="{{ url_for('static', filename='js/state/chatState.js') }}"></script>
+
+<!-- ==================== 流式层 ==================== -->
+<!-- 流式响应处理 -->
+<script src="{{ url_for('static', filename='js/streaming/streamHandler.js') }}"></script>
+
+<!-- ==================== API 层 ==================== -->
+<!-- 会话 API -->
+<script src="{{ url_for('static', filename='js/api/conversationApi.js') }}"></script>
+<!-- 消息 API -->
+<script src="{{ url_for('static', filename='js/api/messageApi.js') }}"></script>
+
+<!-- ==================== UI 层 ==================== -->
+<!-- 会话列表 UI -->
+<script src="{{ url_for('static', filename='js/ui/conversationUI.js') }}"></script>
+<!-- 消息 UI -->
+<script src="{{ url_for('static', filename='js/ui/messageUI.js') }}"></script>
+<!-- 输入框 UI -->
+<script src="{{ url_for('static', filename='js/ui/inputUI.js') }}"></script>
+
+<!-- ==================== 服务层 ==================== -->
+<!-- 流式处理服务 -->
+<script src="{{ url_for('static', filename='js/services/streamingService.js') }}"></script>
+
+<!-- ==================== 组件层 ==================== -->
+<!-- 领域模型 -->
+<script src="{{ url_for('static', filename='js/models/Message.js') }}"></script>
+<script src="{{ url_for('static', filename='js/models/ModelResponse.js') }}"></script>
+<!-- 配置 -->
+<script src="{{ url_for('static', filename='js/config/ModelConfig.js') }}"></script>
+<!-- UI 组件 -->
+<script src="{{ url_for('static', filename='js/components/Button.js') }}"></script>
+<script src="{{ url_for('static', filename='js/components/ModelLabel.js') }}"></script>
+<script src="{{ url_for('static', filename='js/components/CodeBlock.js') }}"></script>
+<script src="{{ url_for('static', filename='js/components/ContentRenderer.js') }}"></script>
+<script src="{{ url_for('static', filename='js/components/ModelResponseView.js') }}"></script>
+<script src="{{ url_for('static', filename='js/components/ModelSelector.js') }}"></script>
+<script src="{{ url_for('static', filename='js/components/ActionBar.js') }}"></script>
+<!-- 管理器 -->
+<script src="{{ url_for('static', filename='js/managers/ModelResponseManager.js') }}"></script>
+
+<!-- ==================== 业务层 ==================== -->
 <!-- 消息组件 -->
 <script src="{{ url_for('static', filename='js/components/MessageComponent.js') }}"></script>
+
+<!-- ==================== 应用层 ==================== -->
 <!-- 聊天主逻辑 -->
 <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
 {% endblock %}

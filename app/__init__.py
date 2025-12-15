@@ -209,6 +209,11 @@ def download_shortened():
 @app.route('/', methods=['POST', 'GET'])
 @login_required
 def index():
+    return redirect('/chat')
+
+@app.route('/shorten', methods=['POST', 'GET'])
+@login_required
+def shorten():
     default_shorten_url = 'random'
     form = TheForm(customize_url=default_shorten_url)
     if current_user.is_authenticated:

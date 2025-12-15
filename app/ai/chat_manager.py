@@ -327,31 +327,86 @@ class ChatManager:
                 # 如果连普通输出都失败，返回错误信息
                 yield f"\n\n[错误: {str(e2)}]"
     
-    def build_memory_for_alternative_model(
-        self, 
-        conversation_id: int, 
-        target_message_id: int, 
-        target_model_name: str
-    ) -> ConversationBufferMemory:
+    def generate_response_for_user_message(
+        self,
+        conversation_id: int,
+        user_message_id: int,
+        user_message: str,
+        model_name: str,
+        stream: bool = False
+    ) -> Union[str, Generator]:
         """
-        构建按需查询时的对话历史
+        为指定用户消息生成模型回答（Peer 架构）
         
-        规则：
-        1. 排除当前要替换的 assistant 消息（target_message_id）
-        2. 对于每一轮用户消息，优先使用同类模型的回答
-        3. 如果没有同类模型的回答，使用第一个其他模型的回答
+        关键：构建上下文时，排除该用户消息之后的所有 assistant 消息（因为它们是对该用户消息的回答）
         
         Args:
             conversation_id: 会话ID
-            target_message_id: 要替换的 assistant 消息ID
+            user_message_id: 用户消息ID
+            user_message: 用户消息内容
+            model_name: 要使用的模型名称（如 'qwen-max'）
+            stream: 是否流式输出
+        
+        Returns:
+            str: AI回答内容（stream=False 时）
+            Generator: 生成器对象（stream=True 时）
+        """
+        # 构建内存（排除该用户消息之后的所有 assistant 消息）
+        memory = self.build_memory_for_user_message(
+            conversation_id,
+            user_message_id,
+            model_name
+        )
+        
+        # 获取指定模型的 LLM 实例
+        # 根据模型名称判断 provider
+        if model_name in ['qwen-max', 'deepseek-chat']:
+            llm = get_llm('302ai', model_name=model_name)
+        else:
+            # 默认使用 302ai provider
+            llm = get_llm('302ai', model_name=model_name)
+        
+        # 使用通用方法生成回答
+        return self._generate_with_conversation(
+            llm=llm,
+            memory=memory,
+            user_message=user_message,
+            stream=stream
+        )
+    
+    def build_memory_for_user_message(
+        self, 
+        conversation_id: int, 
+        user_message_id: int, 
+        target_model_name: str
+    ) -> ConversationBufferMemory:
+        """
+        构建为指定用户消息生成回答时的对话历史（Peer 架构）
+        
+        规则：
+        1. 只包含该用户消息之前的所有消息
+        2. 排除该用户消息之后的所有 assistant 消息（因为它们是对该用户消息的回答）
+        3. 对于每一轮用户消息，优先使用同类模型的回答
+        4. 如果没有同类模型的回答，使用第一个其他模型的回答
+        
+        Args:
+            conversation_id: 会话ID
+            user_message_id: 用户消息ID
             target_model_name: 目标模型名称（用于判断"同类模型"）
         
         Returns:
             ConversationBufferMemory: LangChain 内存对象
         """
-        # 获取所有消息（按顺序）
+        # 获取用户消息
+        user_message = Message.query.get(user_message_id)
+        if not user_message:
+            raise ValueError(f"用户消息 {user_message_id} 不存在")
+        
+        # 获取该用户消息之前的所有消息
         messages = Message.query.filter_by(
             conversation_id=conversation_id
+        ).filter(
+            Message.order_index < user_message.order_index
         ).order_by(Message.order_index.asc()).all()
         
         # 按用户消息分组，构建轮次
@@ -368,9 +423,6 @@ class ChatManager:
                 current_user_msg = msg
                 current_assistant_msgs = []
             elif msg.role == 'assistant':
-                # 跳过要替换的消息
-                if msg.id == target_message_id:
-                    continue
                 current_assistant_msgs.append(msg)
         
         # 保存最后一轮
@@ -405,50 +457,3 @@ class ChatManager:
         
         return memory
     
-    def generate_alternative_model_response(
-        self,
-        conversation_id: int,
-        target_message_id: int,
-        user_message: str,
-        model_name: str,
-        stream: bool = False
-    ) -> Union[str, Generator]:
-        """
-        按需查询另一个模型的回答
-        
-        关键：构建上下文时，遵循"同类模型优先"规则，排除当前要替换的 assistant 消息
-        
-        Args:
-            conversation_id: 会话ID
-            target_message_id: 要替换的 assistant 消息ID
-            user_message: 用户消息内容
-            model_name: 要使用的模型名称（如 'qwen-max'）
-            stream: 是否流式输出
-        
-        Returns:
-            str: AI回答内容（stream=False 时）
-            Generator: 生成器对象（stream=True 时）
-        """
-        # 构建内存（遵循"同类模型优先"规则）
-        memory = self.build_memory_for_alternative_model(
-            conversation_id,
-            target_message_id,
-            model_name
-        )
-        
-        # 获取指定模型的 LLM 实例
-        # 根据模型名称判断 provider
-        if model_name in ['qwen-max', 'deepseek-chat']:
-            llm = get_llm('302ai', model_name=model_name)
-        else:
-            # 默认使用 302ai provider
-            llm = get_llm('302ai', model_name=model_name)
-        
-        # 使用通用方法生成回答
-        return self._generate_with_conversation(
-            llm=llm,
-            memory=memory,
-            user_message=user_message,
-            stream=stream
-        )
-
