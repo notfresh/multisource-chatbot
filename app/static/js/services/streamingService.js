@@ -27,39 +27,80 @@ StreamingService.handleStreaming = async function(stream, options = {}) {
     });
 };
 
-/**
+/*
  * 创建流式处理回调（用于发送消息）
  * @param {Object} context - 上下文对象
  * @param {MessageComponent} context.aiMessageComponent - AI消息组件
- * @param {HTMLElement} context.aiMessageDiv - AI消息DOM元素
+ * @param {HTMLElement} context.aiMessageHandle - AI消息DOM元素
  * @param {HTMLElement} context.chatMessages - 消息容器
  * @param {HTMLElement} context.stopButton - 停止按钮
  * @param {Function} context.onComplete - 完成后的回调
  * @returns {Object} - 流式处理回调对象
  */
 StreamingService.createSendMessageCallbacks = function(context) {
-    const { aiMessageComponent, aiMessageDiv, chatMessages, stopButton, onComplete } = context;
+    const { aiMessageComponent, aiMessageHandle, userMessageHandle, chatMessages, stopButton, onComplete, modelName } = context;
+    
+    // 兜底的模型名称（主要用于调试防御）
+    const effectiveModelName = modelName || (typeof ModelConfig !== 'undefined' ? ModelConfig.default : 'default');
     
     return {
         onChunk: (fullContent) => {
+            console.log('收到数据块:,调用 Onchunk方法');
             // 流式生成中
             if (aiMessageComponent) {
-                aiMessageComponent.updateModelResponse('deepseek-chat', fullContent, false);
+                // 解码Unicode字符
+                const decodedContent = fullContent.replace(/\\u([0-9a-fA-F]{4})/g, (match, p1) => {
+                    return String.fromCharCode(parseInt(p1, 16));
+                });
+                console.log('更新AI消息内容', effectiveModelName, decodedContent);
+                
+                aiMessageComponent.updateModelResponse(effectiveModelName, decodedContent, false);
             }
             MessageUI.scrollToBottom(chatMessages);
         },
-        onDone: ({ messageId, fullContent }) => {
+        onDone: ({ messageId, userMessageId, fullContent }) => {
             // 生成完成
             chatState.endStreaming();
             InputUI.setStopButtonState(stopButton, { visible: false });
             
-            if (aiMessageComponent && fullContent) {
-                aiMessageComponent.updateModelResponse('deepseek-chat', fullContent, true);
-                if (messageId && aiMessageDiv) {
-                    aiMessageDiv.dataset.messageId = messageId;
-                    const responseData = aiMessageComponent.modelManager?.get('deepseek-chat');
-                    if (responseData) {
-                        responseData.messageId = messageId;
+            if (aiMessageComponent) {
+                // 即使 fullContent 为空，也要更新状态
+                const content = fullContent || '';
+                // 解码Unicode字符
+                const decodedContent = content.replace(/\\u([0-9a-fA-F]{4})/g, (match, p1) => {
+                    return String.fromCharCode(parseInt(p1, 16));
+                });
+                
+                // 更新状态为完成（isComplete = true）
+                aiMessageComponent.updateModelResponse(effectiveModelName, decodedContent, true);
+
+                // 更新 AI 消息上的 assistant messageId
+                if (messageId && aiMessageHandle) {
+                    aiMessageHandle.dataset.messageId = messageId;
+                }
+                if (messageId && aiMessageComponent.message) {
+                    aiMessageComponent.message.id = messageId;
+                }
+
+                // 如果后端返回了 user_message_id，把它补到对应的用户消息上，供按需查询使用
+                if (userMessageId) {
+                    try {
+                        const userHandle = userMessageHandle || (aiMessageHandle ? aiMessageHandle.previousElementSibling : null);
+                        if (userHandle) {
+                            userHandle.dataset.messageId = userMessageId;
+
+                            const userMessageComponent = MessageUI.getMessageComponent(userHandle);
+                            if (userMessageComponent && userMessageComponent.message) {
+                                userMessageComponent.message.id = userMessageId;
+                            }
+
+                            // 关键：把 userMessageId 记录到当前 AI 消息组件上，后续按需查询时直接使用
+                            if (aiMessageComponent) {
+                                aiMessageComponent.userMessageId = userMessageId;
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('更新用户消息ID失败:', e);
                     }
                 }
             }
@@ -69,6 +110,10 @@ StreamingService.createSendMessageCallbacks = function(context) {
             }
         },
         onError: (error) => {
+            console.error('流式处理错误:', error);
+            // 确保状态被重置
+            chatState.endStreaming();
+            InputUI.setStopButtonState(stopButton, { visible: false });
             throw error;
         },
         shouldStop: () => !chatState.isStreamingNow()
@@ -102,11 +147,17 @@ StreamingService.createRequestModelCallbacks = function(context) {
             chatState.endStreaming();
             InputUI.setStopButtonState(stopButton, { visible: false });
             
-            if (messageComponent && fullContent) {
+            if (messageComponent) {
+                // 即使 fullContent 为空，也要更新状态
+                const content = fullContent || '';
                 modelResponse.id = responseMessageId;
-                modelResponse.content = fullContent;
-                messageComponent.updateModelResponse(modelName, fullContent, true);
-                messageComponent.addModelResponse(modelResponse);
+                modelResponse.content = content;
+                // 更新状态为完成（isComplete = true）
+                messageComponent.updateModelResponse(modelName, content, true);
+                // 如果内容不为空，添加到模型管理器
+                if (content) {
+                    messageComponent.addModelResponse(modelResponse);
+                }
             }
             
             if (onComplete) {
@@ -114,6 +165,10 @@ StreamingService.createRequestModelCallbacks = function(context) {
             }
         },
         onError: (error) => {
+            console.error('流式处理错误:', error);
+            // 确保状态被重置
+            chatState.endStreaming();
+            InputUI.setStopButtonState(stopButton, { visible: false });
             throw error;
         },
         shouldStop: () => !chatState.isStreamingNow()

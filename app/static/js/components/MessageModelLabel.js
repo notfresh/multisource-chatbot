@@ -1,9 +1,9 @@
 /**
- * 模型标签组件
+ * 消息-模型标签组件
  * 组件层：表达模型标签是什么
  */
 
-class ModelLabel {
+class MessageModelLabel {
     /**
      * 构造函数
      * @param {string} modelName - 模型名称
@@ -67,4 +67,3 @@ class ModelLabel {
         this.element = null;
     }
 }
-

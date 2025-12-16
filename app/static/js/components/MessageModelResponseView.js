@@ -1,16 +1,16 @@
 /**
- * 模型回答视图组件
+ * 消息-模型回答视图组件
  * 组件层：表达模型回答视图是什么
  */
 
-class ModelResponseView {
+class MessageModelResponseView {
     /**
      * 构造函数
      * @param {ModelResponse} modelResponse - 模型回答对象
      */
     constructor(modelResponse) {
         this.modelResponse = modelResponse;
-        this.label = new ModelLabel(
+        this.label = new MessageModelLabel(
             modelResponse.model,
             modelResponse.isExpanded,
             () => this.toggle()

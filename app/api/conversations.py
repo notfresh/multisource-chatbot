@@ -8,7 +8,6 @@ from datetime import datetime
 from app.models import Conversation, Message, db
 from .blueprint import api
 
-
 @api.route('/conversations', methods=['GET'])
 @login_required
 def get_conversations():
@@ -41,36 +40,6 @@ def get_conversations():
         print(f"获取会话列表失败: {str(e)}")
         print(f"详细错误: {error_detail}")
         return jsonify({'error': f'获取会话列表失败: {str(e)}'}), 500
-
-
-@api.route('/conversations', methods=['POST'])
-@login_required
-def create_conversation():
-    """创建新会话"""
-    data = request.get_json() or {}
-    title = data.get('title', '新对话')
-    
-    # 如果标题为空，使用默认标题
-    if not title or title.strip() == '':
-        title = '新对话'
-    
-    conversation = Conversation(
-        title=title,
-        user_id=current_user.id,
-        created_at=datetime.now(),
-        updated_at=datetime.now()
-    )
-    
-    db.session.add(conversation)
-    db.session.commit()
-    
-    return jsonify({
-        'id': conversation.id,
-        'title': conversation.title,
-        'created_at': conversation.created_at.isoformat(),
-        'updated_at': conversation.updated_at.isoformat()
-    }), 201
-
 
 @api.route('/conversations/<int:conversation_id>', methods=['GET'])
 @login_required
@@ -105,6 +74,36 @@ def get_conversation(conversation_id):
             for msg in messages
         ]
     })
+
+
+
+@api.route('/conversations', methods=['POST'])
+@login_required
+def create_conversation():
+    """创建新会话"""
+    data = request.get_json() or {}
+    title = data.get('title', '新对话')
+    
+    # 如果标题为空，使用默认标题
+    if not title or title.strip() == '':
+        title = '新对话'
+    
+    conversation = Conversation(
+        title=title,
+        user_id=current_user.id,
+        created_at=datetime.now(),
+        updated_at=datetime.now()
+    )
+    
+    db.session.add(conversation)
+    db.session.commit()
+    
+    return jsonify({
+        'id': conversation.id,
+        'title': conversation.title,
+        'created_at': conversation.created_at.isoformat(),
+        'updated_at': conversation.updated_at.isoformat()
+    }), 201
 
 
 @api.route('/conversations/<int:conversation_id>', methods=['PUT'])
@@ -149,68 +148,4 @@ def delete_conversation(conversation_id):
     db.session.commit()
     
     return jsonify({'success': True})
-
-
-@api.route('/conversations/<int:conversation_id>/messages/partial', methods=['POST'])
-@login_required
-def save_partial_message(conversation_id):
-    """保存部分消息（用于暂停流式输出时）"""
-    # 验证会话是否存在和所有权
-    conversation = Conversation.query.get(conversation_id)
-    if not conversation:
-        return jsonify({'error': '会话不存在'}), 404
-    if conversation.user_id != current_user.id:
-        return jsonify({'error': 'Unauthorized'}), 403
-    
-    data = request.get_json()
-    content = data.get('content', '')
-    
-    if not content:
-        return jsonify({'error': 'Content is required'}), 400
-    
-    # 获取当前消息数量，用于设置 order_index
-    message_count = Message.query.filter_by(
-        conversation_id=conversation_id
-    ).count()
-    
-    # 检查是否已有未完成的AI消息（最后一条消息是assistant且内容匹配）
-    last_message = Message.query.filter_by(
-        conversation_id=conversation_id
-    ).order_by(Message.order_index.desc()).first()
-    
-    if last_message and last_message.role == 'assistant' and last_message.content == content:
-        # 消息已存在且内容相同，无需重复保存
-        return jsonify({
-            'id': last_message.id,
-            'message': 'Message already saved'
-        })
-    
-    # 创建或更新AI消息
-    # 检查最后一条消息是否是未完成的AI消息（内容较短，可能是部分内容）
-    if (last_message and last_message.role == 'assistant' and 
-        len(content) > len(last_message.content) and 
-        content.startswith(last_message.content)):
-        # 更新现有消息（内容更长，说明是更新）
-        last_message.content = content
-        db.session.commit()
-        return jsonify({
-            'id': last_message.id,
-            'message': 'Message updated'
-        })
-    else:
-        # 创建新消息
-        assistant_message = Message(
-            conversation_id=conversation_id,
-            role='assistant',
-            content=content,
-            order_index=message_count * 2 + 1,
-            model='deepseek-chat'  # 默认使用 deepseek-chat
-        )
-        db.session.add(assistant_message)
-        conversation.updated_at = datetime.now()
-        db.session.commit()
-        return jsonify({
-            'id': assistant_message.id,
-            'message': 'Message saved'
-        })
 

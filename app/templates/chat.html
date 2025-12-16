@@ -111,6 +111,8 @@
 <!-- ==================== 服务层 ==================== -->
 <!-- 流式处理服务 -->
 <script src="{{ url_for('static', filename='js/services/streamingService.js') }}"></script>
+<!-- 聊天服务 -->
+<script src="{{ url_for('static', filename='js/services/ChatService.js') }}"></script>
 
 <!-- ==================== 组件层 ==================== -->
 <!-- 领域模型 -->
@@ -120,17 +122,19 @@
 <script src="{{ url_for('static', filename='js/config/ModelConfig.js') }}"></script>
 <!-- UI 组件 -->
 <script src="{{ url_for('static', filename='js/components/Button.js') }}"></script>
-<script src="{{ url_for('static', filename='js/components/ModelLabel.js') }}"></script>
+<script src="{{ url_for('static', filename='js/components/MessageModelLabel.js') }}"></script>
 <script src="{{ url_for('static', filename='js/components/CodeBlock.js') }}"></script>
 <script src="{{ url_for('static', filename='js/components/ContentRenderer.js') }}"></script>
-<script src="{{ url_for('static', filename='js/components/ModelResponseView.js') }}"></script>
-<script src="{{ url_for('static', filename='js/components/ModelSelector.js') }}"></script>
+<script src="{{ url_for('static', filename='js/components/MessageModelResponseView.js') }}"></script>
+<script src="{{ url_for('static', filename='js/components/MessageModelSelector.js') }}"></script>
 <script src="{{ url_for('static', filename='js/components/ActionBar.js') }}"></script>
 <!-- 管理器 -->
-<script src="{{ url_for('static', filename='js/managers/ModelResponseManager.js') }}"></script>
+<script src="{{ url_for('static', filename='js/components/MessageModelResponseManager.js') }}"></script>
 
 <!-- ==================== 业务层 ==================== -->
-<!-- 消息组件 -->
+<!-- 消息控制器（业务入口） -->
+<script src="{{ url_for('static', filename='js/controllers/MessageController.js') }}"></script>
+<!-- 消息组件（视图） -->
 <script src="{{ url_for('static', filename='js/components/MessageComponent.js') }}"></script>
 
 <!-- ==================== 应用层 ==================== -->

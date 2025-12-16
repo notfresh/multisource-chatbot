@@ -20,15 +20,20 @@
      * @param {number} conversationId - 会话ID
      * @param {string} content - 消息内容
      * @param {AbortSignal} signal - 中断信号
+     * @param {string} [model] - 模型名称（可选，默认由后端决定）
      * @returns {Promise<Response>} - 流式响应对象
      */
-    global.MessageAPI.sendMessage = async function(conversationId, content, signal) {
+    global.MessageAPI.sendMessage = async function(conversationId, content, signal, model) {
+        const body = { content };
+        if (model) {
+            body.model = model;
+        }
         const response = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ content }),
+            body: JSON.stringify(body),
             signal
         });
         

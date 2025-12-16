@@ -11,7 +11,7 @@ window.StreamHandler = window.StreamHandler || {};
  * @param {ReadableStream} stream - 响应流
  * @param {Object} callbacks - 回调函数对象
  * @param {Function} callbacks.onChunk - 收到数据块时的回调 (content: string) => void
- * @param {Function} callbacks.onDone - 流式完成时的回调 (data: { messageId, fullContent }) => void
+ * @param {Function} callbacks.onDone - 流式完成时的回调 (data: { messageId, userMessageId?, fullContent }) => void
  * @param {Function} callbacks.onError - 错误回调 (error: Error) => void
  * @param {Function} callbacks.shouldStop - 是否应该停止 (() => boolean)
  * @returns {Promise<string>} - 完整内容
@@ -35,8 +35,9 @@ StreamHandler.handleStream = async function(stream, callbacks) {
             
             if (done) {
                 // 流式输出结束
-                if (onDone && fullContent) {
-                    onDone({ messageId: null, fullContent });
+                if (onDone) {
+                    // 即使 fullContent 为空也要调用 onDone，确保状态能正确更新
+                    onDone({ messageId: null, fullContent: fullContent || '' });
                 }
                 break;
             }
@@ -46,6 +47,7 @@ StreamHandler.handleStream = async function(stream, callbacks) {
             buffer = lines.pop(); // 保留最后一个不完整的行
             
             for (const line of lines) {
+                console.log('原始行:', line);
                 if (line.startsWith('data: ')) {
                     try {
                         const data = JSON.parse(line.slice(6));
@@ -56,6 +58,7 @@ StreamHandler.handleStream = async function(stream, callbacks) {
                             
                             // 调用 chunk 回调
                             if (onChunk) {
+                                console.log('调用 onChunk:');
                                 onChunk(fullContent);
                             }
                         } else if (data.type === 'done') {
@@ -63,6 +66,7 @@ StreamHandler.handleStream = async function(stream, callbacks) {
                             if (onDone) {
                                 onDone({
                                     messageId: data.message_id,
+                                    userMessageId: data.user_message_id || null,
                                     fullContent
                                 });
                             }

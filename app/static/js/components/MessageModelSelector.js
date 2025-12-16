@@ -1,9 +1,9 @@
 /**
- * 模型选择器组件
+ * 消息-模型选择器组件
  * 组件层：表达模型选择器是什么
  */
 
-class ModelSelector {
+class MessageModelSelector {
     /**
      * 构造函数
      * @param {Array} availableModels - 可用模型列表

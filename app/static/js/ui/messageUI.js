@@ -46,9 +46,7 @@ MessageUI.createMessageElement = function(msg) {
     const messageComponent = new MessageComponent({
         message: msg
     });
-    
     const messageDiv = messageComponent.getElement();
-    
     // 将组件实例存储到 DOM 元素上，方便后续访问
     messageComponentMap.set(messageDiv, messageComponent);
     

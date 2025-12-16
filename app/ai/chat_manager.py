@@ -338,7 +338,8 @@ class ChatManager:
         """
         为指定用户消息生成模型回答（Peer 架构）
         
-        关键：构建上下文时，排除该用户消息之后的所有 assistant 消息（因为它们是对该用户消息的回答）
+        关键：构建上下文时，只包含该用户消息之前的所有消息（order_index < user_message.order_index）
+        这样自动排除了该用户消息之后的所有 assistant 消息（因为它们是对该用户消息的回答）
         
         Args:
             conversation_id: 会话ID
@@ -351,7 +352,7 @@ class ChatManager:
             str: AI回答内容（stream=False 时）
             Generator: 生成器对象（stream=True 时）
         """
-        # 构建内存（排除该用户消息之后的所有 assistant 消息）
+        # 构建内存（只包含该用户消息之前的所有消息，自动排除之后的消息）
         memory = self.build_memory_for_user_message(
             conversation_id,
             user_message_id,
@@ -384,10 +385,10 @@ class ChatManager:
         构建为指定用户消息生成回答时的对话历史（Peer 架构）
         
         规则：
-        1. 只包含该用户消息之前的所有消息
-        2. 排除该用户消息之后的所有 assistant 消息（因为它们是对该用户消息的回答）
+        1. 只包含该用户消息之前的所有消息（order_index < user_message.order_index）
+        2. 自动排除该用户消息之后的所有 assistant 消息（因为它们是对该用户消息的回答）
         3. 对于每一轮用户消息，优先使用同类模型的回答
-        4. 如果没有同类模型的回答，使用第一个其他模型的回答
+        4. 如果没有同类模型的回答，使用第一个其他模型的回答（按时间顺序）
         
         Args:
             conversation_id: 会话ID
@@ -402,7 +403,7 @@ class ChatManager:
         if not user_message:
             raise ValueError(f"用户消息 {user_message_id} 不存在")
         
-        # 获取该用户消息之前的所有消息
+        # 获取该用户消息之前的所有消息（自动排除该用户消息之后的所有消息）
         messages = Message.query.filter_by(
             conversation_id=conversation_id
         ).filter(
@@ -447,9 +448,11 @@ class ChatManager:
                 if assistant_msg.model == target_model_name:
                     selected_assistant = assistant_msg
                     break
-            # 如果没有同类模型，使用第一个其他模型的回答
+            # 如果没有同类模型，使用第一个其他模型的回答（按时间顺序，即 order_index 最小的）
             if not selected_assistant and assistant_msgs:
-                selected_assistant = assistant_msgs[0]
+                # 按 order_index 排序，选择第一个
+                assistant_msgs_sorted = sorted(assistant_msgs, key=lambda m: m.order_index)
+                selected_assistant = assistant_msgs_sorted[0]
             
             # 添加选中的 assistant 消息
             if selected_assistant:

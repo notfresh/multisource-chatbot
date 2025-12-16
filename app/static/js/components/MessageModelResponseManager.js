@@ -1,15 +1,15 @@
 /**
- * 模型回答管理器
+ * 消息-模型回答管理器
  * 组件层：管理多个模型回答
  */
 
-class ModelResponseManager {
+class MessageModelResponseManager {
     /**
      * 构造函数
      */
     constructor() {
         this.responses = new Map(); // Map<modelName, ModelResponse>
-        this.views = new Map();     // Map<modelName, ModelResponseView>
+        this.views = new Map();     // Map<modelName, MessageModelResponseView>
     }
     
     /**
@@ -18,7 +18,7 @@ class ModelResponseManager {
      * @param {string} content - 回答内容
      * @param {number|null} messageId - 消息ID
      * @param {boolean} isExpanded - 是否展开
-     * @returns {ModelResponseView}
+     * @returns {MessageModelResponseView}
      */
     add(model, content = '', messageId = null, isExpanded = false) {
         // 如果已存在，更新它
@@ -36,7 +36,7 @@ class ModelResponseManager {
         this.responses.set(model, response);
         
         // 创建视图
-        const view = new ModelResponseView(response);
+        const view = new MessageModelResponseView(response);
         this.views.set(model, view);
         
         return view;
@@ -49,8 +49,10 @@ class ModelResponseManager {
      * @param {number|null} messageId - 消息ID（可选）
      */
     update(model, content, messageId = null) {
+        console.log(`开始更新模型回答内容：${model} - ${content}`);
         const response = this.responses.get(model);
         if (response) {
+            console.log(`更新原有的 ${model} - ${content}`);
             response.updateContent(content);
             if (messageId !== null) {
                 response.messageId = messageId;
@@ -64,6 +66,7 @@ class ModelResponseManager {
                 }
             }
         } else {
+            console.log("新建一个");
             // 如果不存在，创建一个
             this.add(model, content, messageId);
         }
@@ -130,7 +133,7 @@ class ModelResponseManager {
     /**
      * 获取模型回答视图
      * @param {string} model - 模型名称
-     * @returns {ModelResponseView|null}
+     * @returns {MessageModelResponseView|null}
      */
     getView(model) {
         return this.views.get(model) || null;
