@@ -5,8 +5,10 @@
 from typing import Optional, Generator, Union
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationChain
-from app.models import Message
-from app.ai.llm_config import get_default_llm, get_llm
+
+from app.core.coremodels import Message
+from app.core.db import MessageOp
+from app.core.llm_config import get_default_llm, get_llm
 
 
 class ChatManager:
@@ -38,10 +40,9 @@ class ChatManager:
         Returns:
             ConversationBufferMemory: LangChain 内存对象
         """
-        # 获取所有消息（按顺序）
-        messages = Message.query.filter_by(
-            conversation_id=conversation_id
-        ).order_by(Message.order_index.asc()).all()
+        # 获取所有消息（按顺序）- 使用 MessageOp
+        with MessageOp() as op:
+            messages = op.get_by_conversation_id(conversation_id, order_by="order_index")
         
         # 创建内存对象
         # 注意：ConversationChain 默认使用 'history' 作为 memory_key
@@ -69,7 +70,6 @@ class ChatManager:
                 memory.chat_memory.add_user_message(msg.content)
             elif msg.role == "assistant":
                 memory.chat_memory.add_ai_message(msg.content)
-        
         return memory
     
     def _generate_with_conversation(
@@ -398,17 +398,15 @@ class ChatManager:
         Returns:
             ConversationBufferMemory: LangChain 内存对象
         """
-        # 获取用户消息
-        user_message = Message.query.get(user_message_id)
-        if not user_message:
-            raise ValueError(f"用户消息 {user_message_id} 不存在")
-        
-        # 获取该用户消息之前的所有消息（自动排除该用户消息之后的所有消息）
-        messages = Message.query.filter_by(
-            conversation_id=conversation_id
-        ).filter(
-            Message.order_index < user_message.order_index
-        ).order_by(Message.order_index.asc()).all()
+        # 获取用户消息 - 使用 MessageOp
+        with MessageOp() as op:
+            user_message = op.get_by_id(user_message_id)
+            if not user_message:
+                raise ValueError(f"用户消息 {user_message_id} 不存在")
+            
+            # 获取该用户消息之前的所有消息（自动排除该用户消息之后的所有消息）
+            all_messages = op.get_by_conversation_id(conversation_id, order_by="order_index")
+            messages = [msg for msg in all_messages if msg.order_index is not None and msg.order_index < user_message.order_index]
         
         # 按用户消息分组，构建轮次
         rounds = []  # [(user_msg, [assistant_msgs]), ...]
