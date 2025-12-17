@@ -34,7 +34,7 @@ Base = declarative_base()
 # ==================== SQLAlchemy 模型定义 ====================
 # 复用 coremodels.py 中的字段定义，通过引用其默认值避免重复定义
 
-class ConversationModel(Base):
+class ConversationDBModel(Base):
     """
     会话数据库模型
     复用 coremodels.Conversation 的字段定义（通过引用默认值）
@@ -50,14 +50,14 @@ class ConversationModel(Base):
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     
     # 关联关系（数据库层特有）
-    messages = relationship('MessageModel', backref='conversation', lazy='dynamic', cascade='all, delete-orphan')
+    messages = relationship('MessageDBModel', backref='conversation', lazy='dynamic', cascade='all, delete-orphan')
     
     def __repr__(self):
-        return f'<ConversationModel {self.id}: {self.title}>'
+        return f'<ConversationDBModel {self.id}: {self.title}>'
     
     def to_core(self) -> CoreConversation:
         """转换为领域模型（复用 coremodels.Conversation）"""
-        message_models = self.messages.order_by(MessageModel.order_index.asc()).all()
+        message_models = self.messages.order_by(MessageDBModel.order_index.asc()).all()
         messages = [msg.to_core() for msg in message_models]
         
         return CoreConversation(
@@ -70,7 +70,7 @@ class ConversationModel(Base):
         )
     
     @classmethod
-    def from_core(cls, core_model: CoreConversation) -> 'ConversationModel':
+    def from_core(cls, core_model: CoreConversation) -> 'ConversationDBModel':
         """从领域模型创建数据库模型（复用 coremodels.Conversation）"""
         return cls(
             id=core_model.id,
@@ -81,7 +81,7 @@ class ConversationModel(Base):
         )
 
 
-class MessageModel(Base):
+class MessageDBModel(Base):
     """
     消息数据库模型
     复用 coremodels.Message 的字段定义（通过引用默认值）
@@ -99,7 +99,7 @@ class MessageModel(Base):
     model = Column(String(50), nullable=False, default="deepseek-chat")  # 复用 CoreMessage 的默认值
     
     def __repr__(self):
-        return f'<MessageModel {self.id}: {self.role}>'
+        return f'<MessageDBModel {self.id}: {self.role}>'
     
     def to_core(self) -> CoreMessage:
         """转换为领域模型（复用 coremodels.Message）"""
@@ -114,7 +114,7 @@ class MessageModel(Base):
         )
     
     @classmethod
-    def from_core(cls, core_model: CoreMessage) -> 'MessageModel':
+    def from_core(cls, core_model: CoreMessage) -> 'MessageDBModel':
         """从领域模型创建数据库模型（复用 coremodels.Message）"""
         return cls(
             id=core_model.id,
@@ -130,7 +130,7 @@ class MessageModel(Base):
 # ==================== 模型转换函数 ====================
 # 这些函数内部调用模型类的 to_core() 和 from_core() 方法，复用 coremodels 定义
 
-def conversation_model_to_core(db_model: ConversationModel) -> CoreConversation:
+def conversation_model_to_core(db_model: ConversationDBModel) -> CoreConversation:
     """
     将数据库模型转换为领域模型（复用 coremodels.Conversation）
     
@@ -143,7 +143,7 @@ def conversation_model_to_core(db_model: ConversationModel) -> CoreConversation:
     return db_model.to_core()
 
 
-def conversation_core_to_model(core_model: CoreConversation) -> ConversationModel:
+def conversation_core_to_model(core_model: CoreConversation) -> ConversationDBModel:
     """
     将领域模型转换为数据库模型（复用 coremodels.Conversation）
     
@@ -151,12 +151,12 @@ def conversation_core_to_model(core_model: CoreConversation) -> ConversationMode
         core_model: 领域模型实例
     
     Returns:
-        ConversationModel: SQLAlchemy 模型实例
+        ConversationDBModel: SQLAlchemy 模型实例
     """
-    return ConversationModel.from_core(core_model)
+    return ConversationDBModel.from_core(core_model)
 
 
-def message_model_to_core(db_model: MessageModel) -> CoreMessage:
+def message_model_to_core(db_model: MessageDBModel) -> CoreMessage:
     """
     将消息数据库模型转换为领域模型（复用 coremodels.Message）
     
@@ -169,7 +169,7 @@ def message_model_to_core(db_model: MessageModel) -> CoreMessage:
     return db_model.to_core()
 
 
-def message_core_to_model(core_model: CoreMessage) -> MessageModel:
+def message_core_to_model(core_model: CoreMessage) -> MessageDBModel:
     """
     将消息领域模型转换为数据库模型（复用 coremodels.Message）
     
@@ -177,9 +177,9 @@ def message_core_to_model(core_model: CoreMessage) -> MessageModel:
         core_model: 领域模型实例
     
     Returns:
-        MessageModel: SQLAlchemy 模型实例
+        MessageDBModel: SQLAlchemy 模型实例
     """
-    return MessageModel.from_core(core_model)
+    return MessageDBModel.from_core(core_model)
 
 
 # ==================== ConversationOp 类 ====================
@@ -242,7 +242,7 @@ class ConversationOp:
             Optional[CoreConversation]: 领域模型实例，如果不存在则返回 None
         """
         try:
-            db_model = self.session.query(ConversationModel).filter_by(id=conversation_id).one()
+            db_model = self.session.query(ConversationDBModel).filter_by(id=conversation_id).one()
             return conversation_model_to_core(db_model)
         except NoResultFound:
             return None
@@ -257,9 +257,9 @@ class ConversationOp:
         Returns:
             List[CoreConversation]: 会话列表，按 updated_at 降序排列
         """
-        db_models = self.session.query(ConversationModel).filter_by(
+        db_models = self.session.query(ConversationDBModel).filter_by(
             user_id=user_id
-        ).order_by(ConversationModel.updated_at.desc()).all()
+        ).order_by(ConversationDBModel.updated_at.desc()).all()
         
         return [conversation_model_to_core(model) for model in db_models]
     
@@ -273,8 +273,8 @@ class ConversationOp:
         Returns:
             List[CoreConversation]: 会话列表，按 updated_at 降序排列
         """
-        query = self.session.query(ConversationModel).order_by(
-            ConversationModel.updated_at.desc()
+        query = self.session.query(ConversationDBModel).order_by(
+            ConversationDBModel.updated_at.desc()
         )
         
         if limit:
@@ -321,7 +321,7 @@ class ConversationOp:
         if conversation.id is None:
             raise ValueError("conversation.id 不能为 None")
         
-        db_model = self.session.query(ConversationModel).filter_by(id=conversation.id).first()
+        db_model = self.session.query(ConversationDBModel).filter_by(id=conversation.id).first()
         if not db_model:
             return None
         
@@ -348,7 +348,7 @@ class ConversationOp:
         Returns:
             bool: 是否成功删除
         """
-        db_model = self.session.query(ConversationModel).filter_by(id=conversation_id).first()
+        db_model = self.session.query(ConversationDBModel).filter_by(id=conversation_id).first()
         if not db_model:
             return False
         
@@ -425,7 +425,7 @@ class MessageOp:
             Optional[CoreMessage]: 领域模型实例，如果不存在则返回 None
         """
         try:
-            db_model = self.session.query(MessageModel).filter_by(id=message_id).one()
+            db_model = self.session.query(MessageDBModel).filter_by(id=message_id).one()
             return message_model_to_core(db_model)
         except NoResultFound:
             return None
@@ -445,16 +445,16 @@ class MessageOp:
         Returns:
             List[CoreMessage]: 消息列表
         """
-        query = self.session.query(MessageModel).filter_by(
+        query = self.session.query(MessageDBModel).filter_by(
             conversation_id=conversation_id
         )
         
         if order_by == "order_index":
-            query = query.order_by(MessageModel.order_index.asc())
+            query = query.order_by(MessageDBModel.order_index.asc())
         elif order_by == "created_at":
-            query = query.order_by(MessageModel.created_at.asc())
+            query = query.order_by(MessageDBModel.created_at.asc())
         else:
-            query = query.order_by(MessageModel.order_index.asc())
+            query = query.order_by(MessageDBModel.order_index.asc())
         
         db_models = query.all()
         return [message_model_to_core(model) for model in db_models]
@@ -469,8 +469,8 @@ class MessageOp:
         Returns:
             List[CoreMessage]: 消息列表，按 created_at 降序排列
         """
-        query = self.session.query(MessageModel).order_by(
-            MessageModel.created_at.desc()
+        query = self.session.query(MessageDBModel).order_by(
+            MessageDBModel.created_at.desc()
         )
         
         if limit:
@@ -523,7 +523,7 @@ class MessageOp:
         if message.id is None:
             raise ValueError("message.id 不能为 None")
         
-        db_model = self.session.query(MessageModel).filter_by(id=message.id).first()
+        db_model = self.session.query(MessageDBModel).filter_by(id=message.id).first()
         if not db_model:
             return None
         
@@ -552,7 +552,7 @@ class MessageOp:
         Returns:
             bool: 是否成功删除
         """
-        db_model = self.session.query(MessageModel).filter_by(id=message_id).first()
+        db_model = self.session.query(MessageDBModel).filter_by(id=message_id).first()
         if not db_model:
             return False
         

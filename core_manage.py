@@ -22,6 +22,19 @@ try:
 except ImportError:
     HAS_IPYTHON = False
 
+import warnings
+import os
+import sys
+import asyncio
+# 抑制所有警告
+warnings.filterwarnings('ignore')
+# 设置环境变量抑制 asyncio 警告
+os.environ['PYTHONWARNINGS'] = 'ignore'
+# 强制使用 SelectorEventLoop（避免 Proactor 的问题）
+
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 # 添加项目路径
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
@@ -34,8 +47,8 @@ from app.core.coremodels import (
 from app.core.db import (
     ConversationOp,
     MessageOp,
-    MessageModel,
-    ConversationModel,
+    MessageDBModel,
+    ConversationDBModel,
     get_conversation_by_id,
     get_conversations_by_user_id,
     create_conversation,
@@ -67,8 +80,8 @@ def make_shell_context():
         # 数据库操作
         'ConversationOp': ConversationOp,
         'MessageOp': MessageOp,
-        'ConversationModel': ConversationModel,
-        'MessageModel': MessageModel,
+        'ConversationDBModel': ConversationDBModel,
+        'MessageDBModel': MessageDBModel,
         
         # Conversation 便捷函数
         'get_conversation_by_id': get_conversation_by_id,
@@ -161,45 +174,19 @@ def shell():
     # 创建 shell 上下文
     context = make_shell_context()
     
-    # # 启动交互式 shell
-    # if HAS_IPYTHON:
-    #     # 使用 IPython（更好的体验，支持自动补全、颜色等）
-    #     print("\n使用 IPython shell（支持颜色和语法高亮）...")
-        
-    #     # 配置 IPython 以启用颜色和语法高亮
-    #     try:
-    #         from IPython.terminal.ipapp import load_default_config
-    #         from traitlets.config import Config
-            
-    #         # 创建配置对象
-    #         config = Config()
-    #         # 启用颜色（Linux 风格，适合深色背景）
-    #         config.TerminalInteractiveShell.colors = 'Linux'
-    #         # 启用语法高亮
-    #         config.TerminalInteractiveShell.highlighting_style = 'monokai'  # 或其他风格
-            
-    #         embed(
-    #             user_ns=context, 
-    #             banner1='',
-    #             banner2='',
-    #             config=config
-    #         )
-    #     except Exception as e:
-    #         # 如果配置失败，使用默认设置
-    #         print(f"警告: 无法加载 IPython 配置 ({e})，使用默认设置...")
-    #         embed(
-    #             user_ns=context, 
-    #             banner1='',
-    #             banner2=''
-    #         )
-    # else:
-    #     # 使用标准 Python shell
-    #     print("\n使用标准 Python shell（建议安装 IPython: pip install ipython）...")
-    #     code.interact(
-    #         local=context,
-    #         banner='',
-    #         exitmsg='再见！'
-    #     )
+    # 启动交互式 shell
+    if HAS_IPYTHON:
+        print("\n使用 IPython shell...")
+        # Windows 上彻底抑制 asyncio 警告
+        embed(user_ns=context, banner1='', banner2='', using=False)
+    else:
+        # 使用标准 Python shell
+        print("\n使用标准 Python shell（建议安装 IPython: pip install ipython）...")
+        code.interact(
+            local=context,
+            banner='',
+            exitmsg='再见！'
+        )
 
 
 def test_example():
