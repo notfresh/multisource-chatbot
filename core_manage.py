@@ -15,6 +15,13 @@ import code
 from datetime import datetime
 from typing import Optional
 
+# 尝试导入 IPython（如果可用）
+try:
+    from IPython import embed
+    HAS_IPYTHON = True
+except ImportError:
+    HAS_IPYTHON = False
+
 # 添加项目路径
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
@@ -26,13 +33,19 @@ from app.core.coremodels import (
 )
 from app.core.db import (
     ConversationOp,
+    MessageOp,
     MessageModel,
     ConversationModel,
     get_conversation_by_id,
     get_conversations_by_user_id,
     create_conversation,
     update_conversation,
-    delete_conversation
+    delete_conversation,
+    get_message_by_id,
+    get_messages_by_conversation_id,
+    create_message,
+    update_message,
+    delete_message
 )
 from app.core.llm_config import (
     get_llm,
@@ -53,15 +66,23 @@ def make_shell_context():
         
         # 数据库操作
         'ConversationOp': ConversationOp,
+        'MessageOp': MessageOp,
         'ConversationModel': ConversationModel,
         'MessageModel': MessageModel,
         
-        # 便捷函数
+        # Conversation 便捷函数
         'get_conversation_by_id': get_conversation_by_id,
         'get_conversations_by_user_id': get_conversations_by_user_id,
         'create_conversation': create_conversation,
         'update_conversation': update_conversation,
         'delete_conversation': delete_conversation,
+        
+        # Message 便捷函数
+        'get_message_by_id': get_message_by_id,
+        'get_messages_by_conversation_id': get_messages_by_conversation_id,
+        'create_message': create_message,
+        'update_message': update_message,
+        'delete_message': delete_message,
         
         # LLM 配置
         'get_llm': get_llm,
@@ -80,8 +101,9 @@ def shell():
     print("=" * 60)
     print("\n已注入的关键类：")
     print("  - Conversation, Message, MessageRole (领域模型)")
-    print("  - ConversationOp (数据库操作)")
-    print("  - get_conversation_by_id, create_conversation 等 (便捷函数)")
+    print("  - ConversationOp, MessageOp (数据库操作)")
+    print("  - get_conversation_by_id, create_conversation 等 (Conversation 便捷函数)")
+    print("  - get_message_by_id, create_message 等 (Message 便捷函数)")
     print("  - get_llm, get_default_llm (LLM 配置)")
     print("\n示例用法：")
     print("  # 列出所有对话（推荐方式）")
@@ -107,7 +129,28 @@ def shell():
     print("  conv = Conversation.get_by_id(1)")
     print("  if conv:")
     print("      conv.delete()")
-    print("\n  # 使用 ConversationOp（高级用法）")
+    print("\n  # Message 操作（类似 Conversation）")
+    print("  # 列出消息")
+    print("  messages = Message.list(conversation_id=1)")
+    print("  for msg in messages:")
+    print("      print(f'ID: {msg.id}, 角色: {msg.role}, 内容: {msg.content[:20]}...')")
+    print("\n  # 创建消息")
+    print("  msg = Message.create(")
+    print("      conversation_id=1,")
+    print("      role='user',")
+    print("      content='你好'")
+    print("  )")
+    print("  print(f'创建的消息ID: {msg.id}')")
+    print("\n  # 查询消息")
+    print("  msg = Message.get_by_id(1)")
+    print("  if msg:")
+    print("      print(msg.content)")
+    print("\n  # 保存消息（创建或更新）")
+    print("  msg = Message(conversation_id=1, content='测试')")
+    print("  saved = msg.save()  # 创建")
+    print("  saved.content = '更新后的内容'")
+    print("  saved.save()  # 更新")
+    print("\n  # 使用 ConversationOp/MessageOp（高级用法）")
     print("  with ConversationOp() as op:")
     print("      conversations = op.list()")
     print("      conv = op.get_by_id(1)")
@@ -118,12 +161,45 @@ def shell():
     # 创建 shell 上下文
     context = make_shell_context()
     
-    # 启动交互式 shell
-    code.interact(
-        local=context,
-        banner='',
-        exitmsg='再见！'
-    )
+    # # 启动交互式 shell
+    # if HAS_IPYTHON:
+    #     # 使用 IPython（更好的体验，支持自动补全、颜色等）
+    #     print("\n使用 IPython shell（支持颜色和语法高亮）...")
+        
+    #     # 配置 IPython 以启用颜色和语法高亮
+    #     try:
+    #         from IPython.terminal.ipapp import load_default_config
+    #         from traitlets.config import Config
+            
+    #         # 创建配置对象
+    #         config = Config()
+    #         # 启用颜色（Linux 风格，适合深色背景）
+    #         config.TerminalInteractiveShell.colors = 'Linux'
+    #         # 启用语法高亮
+    #         config.TerminalInteractiveShell.highlighting_style = 'monokai'  # 或其他风格
+            
+    #         embed(
+    #             user_ns=context, 
+    #             banner1='',
+    #             banner2='',
+    #             config=config
+    #         )
+    #     except Exception as e:
+    #         # 如果配置失败，使用默认设置
+    #         print(f"警告: 无法加载 IPython 配置 ({e})，使用默认设置...")
+    #         embed(
+    #             user_ns=context, 
+    #             banner1='',
+    #             banner2=''
+    #         )
+    # else:
+    #     # 使用标准 Python shell
+    #     print("\n使用标准 Python shell（建议安装 IPython: pip install ipython）...")
+    #     code.interact(
+    #         local=context,
+    #         banner='',
+    #         exitmsg='再见！'
+    #     )
 
 
 def test_example():

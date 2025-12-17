@@ -365,6 +365,210 @@ class ConversationOp:
         self.session.rollback()
 
 
+# ==================== MessageOp 类 ====================
+
+class MessageOp:
+    """
+    消息操作类
+    封装 Message 的增删查改和列表查询操作
+    """
+    
+    def __init__(self, session: Optional[Session] = None):
+        """
+        初始化消息操作类
+        
+        Args:
+            session: SQLAlchemy 会话对象，如果为 None 则创建新会话
+        """
+        self.session = session or SessionLocal()
+        self._own_session = session is None
+    
+    def __enter__(self):
+        """上下文管理器入口"""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """上下文管理器出口"""
+        if self._own_session:
+            if exc_type:
+                self.session.rollback()
+            else:
+                self.session.commit()
+            self.session.close()
+    
+    def create(self, message: CoreMessage) -> CoreMessage:
+        """
+        创建新消息
+        
+        Args:
+            message: 领域模型实例
+        
+        Returns:
+            CoreMessage: 创建后的领域模型实例（包含生成的 ID）
+        """
+        db_model = message_core_to_model(message)
+        self.session.add(db_model)
+        self.session.flush()  # 获取生成的 ID
+        self.session.commit()
+        
+        # 返回包含 ID 的领域模型
+        return message_model_to_core(db_model)
+    
+    def get_by_id(self, message_id: int) -> Optional[CoreMessage]:
+        """
+        根据 ID 获取消息
+        
+        Args:
+            message_id: 消息ID
+        
+        Returns:
+            Optional[CoreMessage]: 领域模型实例，如果不存在则返回 None
+        """
+        try:
+            db_model = self.session.query(MessageModel).filter_by(id=message_id).one()
+            return message_model_to_core(db_model)
+        except NoResultFound:
+            return None
+    
+    def get_by_conversation_id(
+        self, 
+        conversation_id: int, 
+        order_by: str = "order_index"
+    ) -> List[CoreMessage]:
+        """
+        获取会话的所有消息（列表查询）
+        
+        Args:
+            conversation_id: 会话ID
+            order_by: 排序字段，可选值：'order_index', 'created_at'
+        
+        Returns:
+            List[CoreMessage]: 消息列表
+        """
+        query = self.session.query(MessageModel).filter_by(
+            conversation_id=conversation_id
+        )
+        
+        if order_by == "order_index":
+            query = query.order_by(MessageModel.order_index.asc())
+        elif order_by == "created_at":
+            query = query.order_by(MessageModel.created_at.asc())
+        else:
+            query = query.order_by(MessageModel.order_index.asc())
+        
+        db_models = query.all()
+        return [message_model_to_core(model) for model in db_models]
+    
+    def get_all(self, limit: Optional[int] = None) -> List[CoreMessage]:
+        """
+        获取所有消息（列表查询）
+        
+        Args:
+            limit: 限制返回数量（可选）
+        
+        Returns:
+            List[CoreMessage]: 消息列表，按 created_at 降序排列
+        """
+        query = self.session.query(MessageModel).order_by(
+            MessageModel.created_at.desc()
+        )
+        
+        if limit:
+            query = query.limit(limit)
+        
+        db_models = query.all()
+        return [message_model_to_core(model) for model in db_models]
+    
+    def list(
+        self, 
+        conversation_id: Optional[int] = None, 
+        limit: Optional[int] = None,
+        order_by: str = "order_index"
+    ) -> List[CoreMessage]:
+        """
+        列出消息（便捷方法）
+        
+        Args:
+            conversation_id: 可选，如果指定则只列出该会话的消息
+            limit: 可选，限制返回数量
+            order_by: 排序字段，可选值：'order_index', 'created_at'
+        
+        Returns:
+            List[CoreMessage]: 消息列表
+        
+        Examples:
+            >>> with MessageOp() as op:
+            ...     # 列出所有消息
+            ...     messages = op.list()
+            ...     # 列出特定会话的消息
+            ...     messages = op.list(conversation_id=1)
+            ...     # 限制数量
+            ...     messages = op.list(limit=10)
+        """
+        if conversation_id:
+            return self.get_by_conversation_id(conversation_id, order_by=order_by)
+        else:
+            return self.get_all(limit=limit)
+    
+    def update(self, message: CoreMessage) -> Optional[CoreMessage]:
+        """
+        更新消息
+        
+        Args:
+            message: 领域模型实例（必须包含 id）
+        
+        Returns:
+            Optional[CoreMessage]: 更新后的领域模型实例，如果不存在则返回 None
+        """
+        if message.id is None:
+            raise ValueError("message.id 不能为 None")
+        
+        db_model = self.session.query(MessageModel).filter_by(id=message.id).first()
+        if not db_model:
+            return None
+        
+        # 更新字段
+        db_model.conversation_id = message.conversation_id
+        db_model.role = message.role
+        db_model.content = message.content
+        db_model.order_index = message.order_index
+        db_model.model = message.model
+        
+        # 如果领域模型有 created_at，也更新它
+        if message.created_at:
+            db_model.created_at = message.created_at
+        
+        self.session.commit()
+        
+        return message_model_to_core(db_model)
+    
+    def delete(self, message_id: int) -> bool:
+        """
+        删除消息
+        
+        Args:
+            message_id: 消息ID
+        
+        Returns:
+            bool: 是否成功删除
+        """
+        db_model = self.session.query(MessageModel).filter_by(id=message_id).first()
+        if not db_model:
+            return False
+        
+        self.session.delete(db_model)
+        self.session.commit()
+        return True
+    
+    def commit(self):
+        """提交事务"""
+        self.session.commit()
+    
+    def rollback(self):
+        """回滚事务"""
+        self.session.rollback()
+
+
 # ==================== 便捷函数 ====================
 
 def get_conversation_by_id(conversation_id: int) -> Optional[CoreConversation]:
@@ -435,4 +639,80 @@ def delete_conversation(conversation_id: int) -> bool:
     """
     with ConversationOp() as op:
         return op.delete(conversation_id)
+
+
+# ==================== Message 便捷函数 ====================
+
+def get_message_by_id(message_id: int) -> Optional[CoreMessage]:
+    """
+    便捷函数：根据 ID 获取消息
+    
+    Args:
+        message_id: 消息ID
+    
+    Returns:
+        Optional[CoreMessage]: 领域模型实例
+    """
+    with MessageOp() as op:
+        return op.get_by_id(message_id)
+
+
+def get_messages_by_conversation_id(
+    conversation_id: int, 
+    order_by: str = "order_index"
+) -> List[CoreMessage]:
+    """
+    便捷函数：获取会话的所有消息
+    
+    Args:
+        conversation_id: 会话ID
+        order_by: 排序字段，可选值：'order_index', 'created_at'
+    
+    Returns:
+        List[CoreMessage]: 消息列表
+    """
+    with MessageOp() as op:
+        return op.get_by_conversation_id(conversation_id, order_by=order_by)
+
+
+def create_message(message: CoreMessage) -> CoreMessage:
+    """
+    便捷函数：创建消息
+    
+    Args:
+        message: 领域模型实例
+    
+    Returns:
+        CoreMessage: 创建后的领域模型实例
+    """
+    with MessageOp() as op:
+        return op.create(message)
+
+
+def update_message(message: CoreMessage) -> Optional[CoreMessage]:
+    """
+    便捷函数：更新消息
+    
+    Args:
+        message: 领域模型实例
+    
+    Returns:
+        Optional[CoreMessage]: 更新后的领域模型实例
+    """
+    with MessageOp() as op:
+        return op.update(message)
+
+
+def delete_message(message_id: int) -> bool:
+    """
+    便捷函数：删除消息
+    
+    Args:
+        message_id: 消息ID
+    
+    Returns:
+        bool: 是否成功删除
+    """
+    with MessageOp() as op:
+        return op.delete(message_id)
 

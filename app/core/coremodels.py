@@ -67,6 +67,170 @@ class Message:
         """判断是否为系统消息"""
         return self.role == MessageRole.SYSTEM.value
     
+    # ==================== 数据库操作包装方法 ====================
+    # 这些方法内部使用 MessageOp，提供便捷的数据库操作接口
+    
+    @classmethod
+    def _get_op(cls):
+        """获取 MessageOp 实例（延迟导入避免循环依赖）"""
+        from app.core.db import MessageOp
+        return MessageOp()
+    
+    @classmethod
+    def list(
+        cls, 
+        conversation_id: Optional[int] = None, 
+        limit: Optional[int] = None,
+        order_by: str = "order_index"
+    ) -> List['Message']:
+        """
+        列出消息（包装 MessageOp.list()）
+        
+        Args:
+            conversation_id: 可选，如果指定则只列出该会话的消息
+            limit: 可选，限制返回数量
+            order_by: 排序字段，可选值：'order_index', 'created_at'
+        
+        Returns:
+            List[Message]: 消息列表
+        
+        Examples:
+            >>> # 列出所有消息
+            >>> messages = Message.list()
+            >>> # 列出特定会话的消息
+            >>> messages = Message.list(conversation_id=1)
+            >>> # 限制数量
+            >>> messages = Message.list(limit=10)
+        """
+        with cls._get_op() as op:
+            return op.list(conversation_id=conversation_id, limit=limit, order_by=order_by)
+    
+    @classmethod
+    def get_by_id(cls, message_id: int) -> Optional['Message']:
+        """
+        根据 ID 获取消息（包装 MessageOp.get_by_id()）
+        
+        Args:
+            message_id: 消息ID
+        
+        Returns:
+            Optional[Message]: 消息对象，如果不存在则返回 None
+        
+        Examples:
+            >>> msg = Message.get_by_id(1)
+            >>> if msg:
+            ...     print(msg.content)
+        """
+        with cls._get_op() as op:
+            return op.get_by_id(message_id)
+    
+    @classmethod
+    def get_by_conversation_id(
+        cls, 
+        conversation_id: int, 
+        order_by: str = "order_index"
+    ) -> List['Message']:
+        """
+        获取会话的所有消息（包装 MessageOp.get_by_conversation_id()）
+        
+        Args:
+            conversation_id: 会话ID
+            order_by: 排序字段，可选值：'order_index', 'created_at'
+        
+        Returns:
+            List[Message]: 消息列表
+        
+        Examples:
+            >>> messages = Message.get_by_conversation_id(1)
+            >>> for msg in messages:
+            ...     print(msg.content)
+        """
+        with cls._get_op() as op:
+            return op.get_by_conversation_id(conversation_id, order_by=order_by)
+    
+    @classmethod
+    def create(
+        cls,
+        conversation_id: int,
+        role: str = MessageRole.USER.value,
+        content: str = "",
+        order_index: Optional[int] = None,
+        model: str = "deepseek-chat"
+    ) -> 'Message':
+        """
+        创建新消息（包装 MessageOp.create()）
+        
+        Args:
+            conversation_id: 会话ID
+            role: 消息角色（'user' 或 'assistant'）
+            content: 消息内容
+            order_index: 消息顺序索引
+            model: 模型标识
+        
+        Returns:
+            Message: 创建后的消息对象（包含生成的 ID）
+        
+        Examples:
+            >>> msg = Message.create(
+            ...     conversation_id=1,
+            ...     role="user",
+            ...     content="你好"
+            ... )
+            >>> print(f"创建的消息ID: {msg.id}")
+        """
+        msg = cls(
+            conversation_id=conversation_id,
+            role=role,
+            content=content,
+            order_index=order_index,
+            model=model
+        )
+        with cls._get_op() as op:
+            return op.create(msg)
+    
+    def save(self) -> 'Message':
+        """
+        保存消息到数据库（如果已存在则更新，否则创建）
+        
+        Returns:
+            Message: 保存后的消息对象
+        
+        Examples:
+            >>> msg = Message(conversation_id=1, content="测试")
+            >>> saved = msg.save()  # 创建新消息
+            >>> saved.content = "更新后的内容"
+            >>> saved.save()  # 更新消息
+        """
+        with self._get_op() as op:
+            if self.id is None:
+                # 创建新消息
+                return op.create(self)
+            else:
+                # 更新现有消息
+                result = op.update(self)
+                if result is None:
+                    # 如果更新失败（不存在），则创建
+                    self.id = None
+                    return op.create(self)
+                return result
+    
+    def delete(self) -> bool:
+        """
+        删除消息（包装 MessageOp.delete()）
+        
+        Returns:
+            bool: 是否成功删除
+        
+        Examples:
+            >>> msg = Message.get_by_id(1)
+            >>> if msg:
+            ...     msg.delete()
+        """
+        if self.id is None:
+            return False
+        with self._get_op() as op:
+            return op.delete(self.id)
+    
     def __repr__(self):
         """字符串表示"""
         role_str = self.role
