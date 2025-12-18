@@ -1,18 +1,15 @@
-# 短网址小应用
+# 多模型对话系统核心层（Core）
 
 [![standard-readme compliant](https://img.shields.io/badge/standard--readme-OK-green.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme)
 
+本项目最初是一个短网址小应用，目前已经演化为一个**多 LLM 对话系统**，并在此基础上抽象出一套与 Web 框架无关的**核心层（`app/core`）**：
 
+- 领域模型：`Conversation`、`Message`、`MessageRole`
+- 持久化层：基于原生 SQLAlchemy 的 `ConversationOp`、`MessageOp`
+- 聊天服务：`ChatManager` + LangChain + 302.ai / 兼容 OpenAI API
+- 命令行工具：`core_manage.py`，用于在 IPython 中直接与核心层交互
 
-如果我们在微博里发布一条带网址的信息，微博会把里面的网址转化成一个更短的网址。我们只要访问这个短网址，就相当于访问原始的网址。经典的短网址有 [suo.im](http://suo.im/)、[bitly](https://bitly.com/)、新浪微博的t.cn 。从功能上讲，短网址服务其实非常简单，就是把一个长的网址转化成一个短的网址。除了这个功能之外，短网址服务还有另外一个必不可少的功能。那就是，当用户点击短网址的时候，短网址服务会将浏览器重定向为原始网址。
-
-本项目提供了具体实现代码、如何安装的说明和详细的实现短网址的思路。
-
-如果您需要：
-- 原理讲解、代码讲解、私有化部署
-- 二次开发，包括但不限于增加访问数量统计、导入导出等需求  
-
-**可以联系我，提供免费或者小额付费咨询（视工作量而定），请添加我的vx search-engineer2024或者发邮箱 notfresh@foxmail.com，备注 短网址系统咨询**
+你可以只把 `app/core` + `core_manage.py` 当成一个独立的“多模型对话内核库”，嵌入到任意 Web / CLI / Agent 项目中。
 
 
 ## 目录
@@ -27,189 +24,164 @@
 - [许可证](#许可证)
 
 
-
 ## 背景
 
-经常使用短网址，大致知道其背后原理，在学习王争老师的算法与数据结构之美的过程中，看到有一篇提到如何实现一个短网址，于是想根据其思路**从0开始**捣鼓一个短网址网页应用。
+重构的目标是：
 
+- 把原来强绑定 Flask 的业务模型和数据库访问逻辑，抽离成**纯 Python 的领域模型 + SQLAlchemy 持久化层**
+- 让 `Conversation` / `Message` 这些模型不依赖 Flask，也不依赖 Web 请求上下文
+- 能在 IPython / 脚本 / 后台任务里，直接拿一个 `Conversation` 实例调用 `send_message()`，就能完成一次完整对话流程（包括写库、调 LLM、流式打印结果）
 
-## 和其他的短网址服务有啥不一样？  
-
-首先， 个性化的注记。 其他的短网址服务会把网址压缩成一个不可读的16进制字符串。我的系统可以补充更好记忆的字符串。 
-
-比如,下面的公网体验版， 你注册并且登录之后，把 https://www.bilibili.com/ 记为 bb， 在浏览器里输入 https://jumper.pub/bb 就可以直接跳转到 https://www.bilibili.com/。 <br/> 
-
-还有公网模式，如果你选择压缩的网址是公开的，会在前缀前加上 p/, 比如 https://jumper.pub/p/bb 可以直接访问 https://www.bilibili.com/。
-
-其次，别人有的咱也有。本网站也支持把网址压缩成一个不可读的16进制字符串。<br/>  
-
-
+因此，`app/core` 目录是整个项目的新“心脏”，Web 层只是外围适配。
 
 
 ## 安装
 
-```shell
-git clone https://github.com/notfresh/shorturl_service shorturl_service
+### 1. 克隆仓库
+
+```bash
+git clone https://github.com/notfresh/shorturl_service multi-llm
+cd multi-llm
 ```
+
+### 2. （推荐）创建并激活虚拟环境
+
+```bash
+python -m venv venv
+venv\Scripts\activate  # Windows
+# 或
+source venv/bin/activate  # macOS / Linux
+```
+
+### 3. 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+### 4. 配置环境 / API Key
+
+项目通过 `config.py` 读取 `env/env.yml`：
+
+- **LLM 相关**
+  - `API_302_AI_KEY`：302.ai 或兼容 OpenAI 接口的 API Key
+- **数据库**
+  - 可在 `env.yml` 中配置 `SQLALCHEMY_DATABASE_URI`
+  - 若不配置，则默认使用项目根目录下的 `app.sqlite`
+
+只想体验核心层，保持默认 sqlite 即可。
+
 
 ## 用法
 
-> 本地运行依赖
-> docker, docker-compose
->
-> 本次开发测试需要依赖：
->
-> Python3.6+、Flask、Redis、Nginx、Gunicorn、Sqlite3
+### 1. 启动核心层交互 Shell
 
+```bash
+python core_manage.py shell
+```
 
+进入后会自动注入：
 
-1. 用终端 docker-compose 启动
+- `Conversation`, `Message`, `MessageRole`
+- `ConversationOp`, `MessageOp`
+- `create_conversation`, `get_conversation_by_id`, `create_message` 等便捷函数
+- `get_llm`, `get_default_llm`
 
-    ```
-    # 启动应用
-    
-    docker-compose up 
-    
-    # 启动另外一个终端标签,如果有需要升级初始化数据库
-    #  针对一个已经定义在 docker-compose.yml 文件中的服务执行一条命令，您可以使用 docker-compose run 命令
-    docker-compose run app python manage.py db upgrade  
-    ```
+### 2. 在 IPython 中直接对话
 
-2. 在浏览器访问 `http://locahost/` 即可体验
+```python
+# 创建会话
+conv = Conversation.create(title='测试对话', user_id=1)
+print(conv.id, conv.title)
 
+# 使用会话实例直接聊天（流式输出）
+conv.send_message('你好，帮我解释一下多模型对话系统？', model_name='deepseek-chat')
+```
 
-## 在线版本体验
+这一次调用会：
 
-为了做成一个真正的网页应用，我把它做成了一个在线服务。  
+- 写入一条用户消息到数据库
+- 使用 `ChatManager` 调用 LLM，流式打印 AI 输出
+- 保存助手回复，并更新 `Conversation.updated_at`、`order_index` 等
 
-网址是 [https://jumper.pub](https://jumper.pub), 因为是公网环境，而每个人的短网址记忆的需求是不一样的，所以我做了个性化的定制。就是加入了登录功能。  
+### 3. 浏览和管理历史会话 / 消息
 
-这里有一个取舍，就是有没有不用登录就可以使用的短网址呢？目前没有做， 有以下几个原因：
-1. 别人抢注网址助记符，导致自己没有办法网页跳转。
-2. 恶意跳转网址，造成不安全因素。  
+```python
+# 列出所有会话
+for c in Conversation.list():
+    print(c.id, c.title, c.updated_at)
 
-鉴于以下原因，所以在公网发布的版本需要登录，才能跳转到自己的短网址映射。  
+# 按用户过滤
+my_convs = Conversation.list(user_id=1)
+
+# 查看某个会话的消息
+msgs = Message.list(conversation_id=conv.id)
+for m in msgs:
+    print(m.role, m.content[:30])
+```
+
+如需更细粒度控制，可直接使用 `ConversationOp` / `MessageOp`。
 
 
 ## 设计思路
 
-如何制作一个短网址的网页应用呢？
+- **框架无关（Framework Agnostic）**
+  - `app/core` 不依赖 Flask / Request / 蓝图等任何 Web 概念
+  - 可以像使用普通 Python 包一样，在任意环境下导入使用
 
-答案是通过哈希算法。哈希算法可以将一个不管多长的字符串，转化成一个长度固定的哈希值。我们可以利用哈希算法，来生成短网址。
+- **领域模型 + 持久化解耦**
+  - `coremodels.py` 中的 `Conversation` / `Message` 是纯 `dataclass`，只关心业务含义与行为
+  - `db.py` 中的 `ConversationDBModel` / `MessageDBModel` 负责 ORM 映射和 CRUD
+  - 通过 `to_core()` / `from_core()` 完成两者之间的转换
 
-著名的哈希算法比如 MD5、SHA 等。但是，对于短网址，我们并不需要关注哈希算法的安全性和反解密，只需要关心哈希算法的计算速度和冲突概率。能够满足这样要求的哈希算法有很多，其中比较著名并且应用广泛的一个哈希算法，那就是[MurmurHash 算法]([https://zh.wikipedia.org/wiki/Murmur%E5%93%88%E5%B8%8C](https://zh.wikipedia.org/wiki/Murmur哈希))。
+- **服务层负责“流程编排”**
+  - `ChatManager` 负责：构建对话历史、调用 LangChain + LLM、处理普通/流式输出
+  - 支持 Peer 架构等更复杂的上下文选择策略（按模型选择回答）
 
-压缩的算法需要三个核心考虑因素：
+- **交互友好**
+  - `core_manage.py` 提供 `shell` 命令，一行起 IPython，所有核心对象已注入
+  - 针对 Windows + IPython 的异步告警、颜色问题做了定制处理，体验更干净
 
-1. 选择什么算法？我们选择 Murmurhash 32位 哈希算法。
-2. 在1的基础上，如何解决哈希冲突问题？**给网址增加随机字符串参数**。
-3. 如何优化哈希算法生成短网址的性能？我使用**Redis缓存**，**试探保存法**、可选但是没有实现的比如**布隆过滤器**快速检测冲突。
-
-以下是思路流程图，基本上也是我代码实现的思路：
-
-![关联图](./images/flow.jpg)
 
 ## 核心代码
 
+- `app/core/coremodels.py`
+  - `MessageRole`：消息角色枚举（user / assistant / system）
+  - `Message`：消息领域模型，提供便捷的静态方法/类方法（`create`, `list`, `get_by_id` 等）
+  - `Conversation`：会话模型，内置 `create/list/get/save/delete/send_message` 等高层操作
 
+- `app/core/db.py`
+  - `ConversationDBModel` / `MessageDBModel`：SQLAlchemy ORM 映射
+  - `ConversationOp` / `MessageOp`：封装会话和消息的 CRUD、list、上下文管理等
 
-压缩网址的算法:  
+- `app/core/llm_config.py`
+  - 统一创建 302.ai / 兼容 OpenAI 接口的 `ChatOpenAI` 实例
+  - 提供 `get_llm`、`get_default_llm`
 
-```python
-def rehash_baseh62(the_url_str):
-    ls = [str(item) for item in range(10)]
+- `app/core/chat_manager.py`
+  - 使用 LangChain 的 `ConversationBufferMemory` + `ConversationChain`
+  - 支持普通回答和流式回答
+  - 为 Peer 架构提供面向“指定用户消息”的上下文构建方法
 
-    for item in range(65, 91):
-        ls.append(chr(item))
-
-    for item in range(97, 123):
-        ls.append(chr(item))
-
-    res = []
-    import mmh3
-    num = mmh3.hash(the_url_str, signed=False)
-    while num:
-        res.insert(0, ls[num%62])
-        num = num // 62
-
-    return ''.join(res)
-```
-
-
-
-**把一个网址压缩成短网址的核心流程:** 
-
-```python
-def index():
-    default_shorten_url = 'Default random'
-    form = TheForm(customize_url=default_shorten_url)
-    if form.validate_on_submit():
-
-        the_url = form.the_url.data
-        customize_url = form.customize_url.data
-        full_shorten_url = ''
-        while True:
-            if customize_url == default_shorten_url:
-                shorten_url = rehash_baseh62(the_url)  #压缩算法或者自定义短网址，本系统的核心
-            # 查询这个网址有没有被压缩
-            # saved_shorten_url = ShortURL.query.filter_by(origin_url)
-            else:
-                shorten_url = customize_url
-            url = ShortURL(origin_url=the_url, shorten_url=shorten_url)
-            # 保存
-            try:
-                # 试探着保存,如果保存成功, 那么跳出循环
-                # shorten_url 有可能是唯一的，会引起唯一性索引异常
-                db.session.add(url)
-                db.session.commit()
-                break
-            except sa.exc.IntegrityError as e:
-                db.session.rollback()
-                saved_origin_url = db.session.query(ShortURL.origin_url).filter_by(shorten_url=shorten_url).first()
-                # print(shorten_url + " exists, roll back")
-                # 自定义短网址命名重复
-                if customize_url != default_shorten_url:
-                    flash('the assgined name has been taken before')
-                    return render_template('index.html', form=form,
-                                           shorten_url=make_full_url(app, shorten_url),
-                                           taken=True,
-                                           took_url=saved_origin_url[0])
-                # 没有采用自定义网址, 默认采用压缩的方式, 但是之前已经存储过 或者 压缩的时候哈希冲突
-                if customize_url == default_shorten_url:
-                    # 之前已经存储过, 不做处理
-                    if saved_origin_url[0] == the_url:
-                        print("the url has been hash shortened")
-                        break
-                    # 压缩的时候哈希冲突，概率极小, 做进一步处理
-                    else:
-                        # 网址里面有附加参数
-                        if '?' in the_url:
-                            the_url += ('&randomk=' + str(random.random()))
-                        else:
-                            if the_url[-1] != '/':  # 没有以/结尾
-                                the_url += '/'
-                            the_url += ('?randomk=' + str(random.random()))
-            except Exception as e:
-                return render_template('500.html'), 500
-        return render_template('index.html', form=form, shorten_url=make_full_url(app, shorten_url))
-    return render_template('index.html', form=form)
-```
-
+- `core_manage.py`
+  - 提供 `shell` / `list` 等命令
+  - 是调试核心层、做交互实验的主要入口
 
 
 ## 维护者
 
 [@notfresh](https://github.com/notfresh)
 
+
 ## 如何贡献
 
 PRs accepted.
 
-Small note: If editing the README, please conform to the [standard-readme](https://github.com/RichardLitt/standard-readme) specification.
+如果你对抽象核心层、对话管理、LangChain 集成等有改进建议，欢迎直接提 Issue 或 PR。
+
 
 ## 许可证
 
-MIT © 2020 notfresh
-
+MIT © 2020–2025 notfresh
 
 
