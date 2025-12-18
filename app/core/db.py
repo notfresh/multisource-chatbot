@@ -12,7 +12,7 @@
 
 import os
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Generator
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, relationship
@@ -30,7 +30,6 @@ engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 Base = declarative_base()
 
-
 # ==================== SQLAlchemy 模型定义 ====================
 # 复用 coremodels.py 中的字段定义，通过引用其默认值避免重复定义
 
@@ -45,7 +44,9 @@ class ConversationDBModel(Base):
     # 参考: coremodels.Conversation.title = "新对话"
     id = Column(Integer, primary_key=True)
     title = Column(String(200), default="新对话")  # 复用 CoreConversation 的默认值
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    # TODO: 暂时注释外键约束，等 User 表引入后再启用
+    # user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    user_id = Column(Integer, nullable=False)  # 暂时去掉外键约束
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     
@@ -190,15 +191,23 @@ class ConversationOp:
     封装 Conversation 的增删查改和列表查询操作
     """
     
-    def __init__(self, session: Optional[Session] = None):
+    def __init__(self, session: Optional[Session] = None, chat_manager=None):
         """
         初始化会话操作类
         
         Args:
             session: SQLAlchemy 会话对象，如果为 None 则创建新会话
+            chat_manager: ChatManager 实例，如果为 None 则自动创建
         """
         self.session = session or SessionLocal()
         self._own_session = session is None
+        
+        # 延迟导入 ChatManager 避免循环依赖
+        if chat_manager is None:
+            from app.core.chat_manager import ChatManager
+            self.chat_manager = ChatManager()
+        else:
+            self.chat_manager = chat_manager
     
     def __enter__(self):
         """上下文管理器入口"""
@@ -363,6 +372,91 @@ class ConversationOp:
     def rollback(self):
         """回滚事务"""
         self.session.rollback()
+    
+    def send_message(
+        self,
+        conversation_id: int,
+        user_content: str,
+        model_name: str = 'deepseek-chat',
+        auto_title: bool = True
+    ) -> Generator[dict, None, None]:
+        """
+        发送消息并获取AI回答（完整工作流）
+        
+        这是一个便捷方法，封装了：
+        1. 创建用户消息
+        2. 生成并保存AI回答
+        3. 更新会话信息
+        
+        Args:
+            conversation_id: 会话ID
+            user_content: 用户消息内容
+            model_name: 模型名称（默认：'deepseek-chat'）
+            auto_title: 是否自动生成会话标题（默认：True）
+        
+        Yields:
+            dict: 包含 'type' 和数据的字典
+                - type='chunk': {'type': 'chunk', 'chunk': str}
+                - type='done': {'type': 'done', 'message_id': int, 'user_message_id': int}
+                - type='error': {'type': 'error', 'error': str}
+        
+        Examples:
+            >>> with ConversationOp() as op:
+            ...     for result in op.send_message(1, "你好", model_name='deepseek-chat'):
+            ...         if result['type'] == 'chunk':
+            ...             print(result['chunk'], end='')
+            ...         elif result['type'] == 'done':
+            ...             print(f"\n完成！消息ID: {result['message_id']}")
+        """
+        from app.core.coremodels import Message
+        
+        # 获取会话
+        conversation = self.get_by_id(conversation_id)
+        if not conversation:
+            yield {'type': 'error', 'error': f'会话 {conversation_id} 不存在'}
+            return
+        
+        # 获取最后一条消息的 order_index
+        with MessageOp(self.session) as msg_op:
+            last_message = None
+            messages = msg_op.get_by_conversation_id(conversation_id, order_by="order_index")
+            if messages:
+                last_message = messages[-1]
+            
+            # 计算新用户消息的 order_index
+            if last_message is None:
+                new_order_index = 0
+            else:
+                if last_message.order_index is None:
+                    new_order_index = 0
+                elif last_message.order_index % 2 == 0:  # 最后是用户消息
+                    new_order_index = last_message.order_index + 2
+                else:  # 最后是助手消息
+                    new_order_index = last_message.order_index + 1
+            
+            # 创建用户消息
+            user_message = Message(
+                conversation_id=conversation_id,
+                role='user',
+                content=user_content,
+                order_index=new_order_index,
+                model=model_name
+            )
+            
+            # 保存用户消息
+            saved_user_message = msg_op.create(user_message)
+        
+        # 使用 ChatManager 生成并保存助手回答
+        precomputed_order_index = saved_user_message.order_index + 1
+        
+        yield from self.chat_manager.generate_and_save_assistant_response(
+            conversation_id=conversation_id,
+            user_message_id=saved_user_message.id,
+            user_message=saved_user_message,
+            model_name=model_name,
+            precomputed_order_index=precomputed_order_index,
+            auto_title=auto_title
+        )
 
 
 # ==================== MessageOp 类 ====================

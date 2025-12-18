@@ -463,6 +463,76 @@ class Conversation:
         with self._get_op() as op:
             return op.delete(self.id)
     
+    def send_message(
+        self,
+        user_content: str,
+        model_name: str = 'deepseek-chat',
+        auto_title: bool = True
+    ) -> Optional[dict]:
+        """
+        发送消息并获取AI回答（实时打印到屏幕）
+        
+        这是一个便捷方法，使用当前会话实例的 ID，封装了：
+        1. 创建用户消息
+        2. 生成并保存AI回答
+        3. 实时打印流式输出到屏幕
+        
+        Args:
+            user_content: 用户消息内容
+            model_name: 模型名称（默认：'deepseek-chat'）
+            auto_title: 是否自动生成会话标题（默认：True）
+        
+        Returns:
+            Optional[dict]: 完成时的结果字典，包含 'message_id' 和 'user_message_id'
+                如果出错则返回 None
+        
+        Examples:
+            >>> conv = Conversation.get_by_id(1)
+            >>> if conv:
+            ...     result = conv.send_message("你好", model_name='deepseek-chat')
+            ...     if result:
+            ...         print(f"助手消息ID: {result['message_id']}")
+        """
+        if self.id is None:
+            print("❌ 错误: 会话尚未保存到数据库，请先调用 save() 方法")
+            return None
+        
+        # 使用 ConversationOp 发送消息
+        with self._get_op() as op:
+            assistant_message_id = None
+            user_message_id = None
+            
+            try:
+                for result in op.send_message(
+                    conversation_id=self.id,
+                    user_content=user_content,
+                    model_name=model_name,
+                    auto_title=auto_title
+                ):
+                    if result['type'] == 'chunk':
+                        # 实时打印流式输出
+                        print(result['chunk'], end='', flush=True)
+                    elif result['type'] == 'done':
+                        assistant_message_id = result.get('message_id')
+                        user_message_id = result.get('user_message_id')
+                        print()  # 换行
+                    elif result['type'] == 'error':
+                        print(f"\n❌ 错误: {result['error']}")
+                        return None
+                
+                # 返回完成信息
+                if assistant_message_id and user_message_id:
+                    return {
+                        'message_id': assistant_message_id,
+                        'user_message_id': user_message_id
+                    }
+                return None
+            except Exception as e:
+                print(f"\n❌ 异常: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                return None
+    
     def __repr__(self):
         """字符串表示"""
         message_count = len(self.messages)
