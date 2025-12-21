@@ -46,9 +46,16 @@ def create_app_for_cli(info=None):
 cli = FlaskGroup(create_app=create_app_for_cli)
 
 # 为了支持 gunicorn，需要直接创建 app 实例
-# 从环境变量获取配置，默认为 'development'
-flask_config = os.environ.get('FLASK_ENV', 'development')
-app = create_app(flask_config)
+# 但避免在 CLI 模式下重复创建（CLI 会通过 create_app_for_cli 创建）
+# 检查是否是通过 gunicorn 或其他 WSGI 服务器导入
+# 如果是直接运行 python manage.py，则不创建 app（使用 CLI）
+if __name__ != '__main__':
+    # gunicorn 或其他 WSGI 服务器导入时创建 app
+    flask_config = os.environ.get('FLASK_ENV', 'development')
+    app = create_app(flask_config)
+else:
+    # 直接运行 python manage.py 时，不创建 app，由 create_app_for_cli 处理
+    app = None
 
 # 添加自定义 runserver 命令以保持向后兼容
 @cli.command('runserver')
