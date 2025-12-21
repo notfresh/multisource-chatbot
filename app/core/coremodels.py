@@ -11,7 +11,7 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Generator, Union, Callable
 from enum import Enum
 
 
@@ -36,6 +36,7 @@ class Message:
         created_at: 创建时间
         order_index: 消息在会话中的顺序索引
         model: 模型标识（如 'deepseek-chat', 'qwen-max' 等）
+        generation_time: 生成答案耗时（秒），仅助手消息有此属性
     """
     conversation_id: Optional[int] = None
     role: str = MessageRole.USER.value
@@ -44,6 +45,7 @@ class Message:
     model: str = "deepseek-chat"
     id: Optional[int] = None
     created_at: Optional[datetime] = None
+    generation_time: Optional[float] = None
     
     def __post_init__(self):
         """初始化后处理"""
@@ -73,7 +75,7 @@ class Message:
     @classmethod
     def _get_op(cls):
         """获取 MessageOp 实例（延迟导入避免循环依赖）"""
-        from app.core.db import MessageOp
+        from app.core.db_model_op import MessageOp
         return MessageOp()
     
     @classmethod
@@ -355,7 +357,7 @@ class Conversation:
     @classmethod
     def _get_op(cls):
         """获取 ConversationOp 实例（延迟导入避免循环依赖）"""
-        from app.core.db import ConversationOp
+        from app.core.db_model_op import ConversationOp
         return ConversationOp()
     
     @classmethod
@@ -463,75 +465,226 @@ class Conversation:
         with self._get_op() as op:
             return op.delete(self.id)
     
-    def send_message(
-        self,
-        user_content: str,
-        model_name: str = 'deepseek-chat',
-        auto_title: bool = True
-    ) -> Optional[dict]:
+    def refresh_messages(self) -> 'Conversation':
         """
-        发送消息并获取AI回答（实时打印到屏幕）
+        从数据库刷新当前会话的消息列表到 self.messages
         
-        这是一个便捷方法，使用当前会话实例的 ID，封装了：
-        1. 创建用户消息
-        2. 生成并保存AI回答
-        3. 实时打印流式输出到屏幕
-        
-        Args:
-            user_content: 用户消息内容
-            model_name: 模型名称（默认：'deepseek-chat'）
-            auto_title: 是否自动生成会话标题（默认：True）
+        注意：这是一个读操作，不会修改数据库，只是让内存中的会话对象与数据库保持同步。
         
         Returns:
-            Optional[dict]: 完成时的结果字典，包含 'message_id' 和 'user_message_id'
-                如果出错则返回 None
+            Conversation: 刷新后的当前会话实例（便于链式调用）
         
         Examples:
             >>> conv = Conversation.get_by_id(1)
-            >>> if conv:
-            ...     result = conv.send_message("你好", model_name='deepseek-chat')
-            ...     if result:
-            ...         print(f"助手消息ID: {result['message_id']}")
+            >>> # 其他地方插入了新消息，此时内存中的 conv.messages 可能过期
+            >>> conv.refresh_messages()
+            >>> print(len(conv.messages))
         """
         if self.id is None:
-            print("❌ 错误: 会话尚未保存到数据库，请先调用 save() 方法")
-            return None
+            raise ValueError("当前会话尚未保存到数据库，无法刷新消息（id 为 None）")
         
-        # 使用 ConversationOp 发送消息
         with self._get_op() as op:
-            assistant_message_id = None
-            user_message_id = None
-            
+            # 使用 ConversationOp 的 refresh_messages 从数据库取最新的消息列表
+            messages = op.refresh_messages(self.id)
+        
+        self.messages = messages
+        return self
+    
+    def send_message(
+        self,
+        user_content: Optional[str]='',
+        model_name: str = 'deepseek-chat',
+        auto_title: bool = True,
+        user_message_id: Optional[int] = None,
+        save_response: bool = False,
+        return_iterator: bool = False,
+        should_stop: Optional[Callable[[], bool]] = None
+    ) -> Union[Generator[dict, None, None], Optional[dict]]:
+        """
+        发送消息并获取AI回答
+        
+        这是一个便捷方法，使用当前会话实例的 ID，封装了两类场景：
+        1. 正常对话模式（user_message_id 为空）：
+           - 创建用户消息
+           - 生成并保存 AI 回答
+           - 默认打印流式输出到屏幕，或通过迭代器返回
+        2. 对比模型回答模式（user_message_id 有值）：
+           - 不再新增用户消息，而是选定一条已存在的用户消息
+           - 使用指定模型生成回答，用于"查看这个模型回答得怎么样"
+           - 可通过 save_response 参数控制是否将回答持久化到数据库
+        
+        Args:
+            user_content: 用户消息内容（正常对话模式使用；对比模式下会自动读取 user_message_id 对应消息内容）
+            model_name: 模型名称（默认：'deepseek-chat'）
+            auto_title: 是否自动生成会话标题（默认：True，仅正常对话模式生效）
+            user_message_id: 可选，已存在的用户消息 ID，用于"查看其他模型如何回答这条消息"
+            save_response: 是否保存 AI 回答到数据库（默认：False，仅对比模式生效；正常对话模式始终保存）
+            return_iterator: 是否返回迭代器（默认：False，打印到控制台；True 时返回生成器供 API 使用）
+            should_stop: 可选，停止检查函数，返回 True 时停止生成。如果不提供，在 CLI 环境下会自动创建基于 Ctrl+C 的检查器
+        
+        Returns:
+            如果 return_iterator=False（默认）：
+                Optional[dict]: 完成时的结果字典，包含 'message_id' 和 'user_message_id'，如果出错则返回 None
+            如果 return_iterator=True：
+                Generator[dict, None, None]: 生成器，yield 包含 'type' 和数据的字典
+                    - type='chunk': {'type': 'chunk', 'chunk': str}
+                    - type='done': {'type': 'done', 'message_id': int, 'user_message_id': int}
+                    - type='interrupted': {'type': 'interrupted', 'message': str}  # 用户中断
+                    - type='error': {'type': 'error', 'error': str}
+        
+        Examples:
+            >>> conv = Conversation.get_by_id(1)
+            >>> # 正常对话（默认打印到控制台，自动支持 Ctrl+C）
+            >>> result = conv.send_message("你好", model_name='deepseek-chat')
+            >>> # 正常对话（返回迭代器，用于 API）
+            >>> for result in conv.send_message("你好", model_name='deepseek-chat', return_iterator=True):
+            ...     if result['type'] == 'chunk':
+            ...         # 处理流式数据块
+            ...         pass
+            >>> # 对比模式（默认打印到控制台）
+            >>> conv.send_message(user_message_id=5, model_name='qwen-max')
+            >>> # 对比模式（返回迭代器，用于 API）
+            >>> for result in conv.send_message(user_message_id=5, model_name='qwen-max', save_response=True, return_iterator=True):
+            ...     if result['type'] == 'chunk':
+            ...         # 处理流式数据块
+            ...         pass
+        """
+        # 如果没有提供 should_stop，在 CLI 环境下自动创建基于信号的检查器
+        if should_stop is None:
             try:
-                for result in op.send_message(
-                    conversation_id=self.id,
-                    user_content=user_content,
-                    model_name=model_name,
-                    auto_title=auto_title
-                ):
-                    if result['type'] == 'chunk':
-                        # 实时打印流式输出
-                        print(result['chunk'], end='', flush=True)
-                    elif result['type'] == 'done':
-                        assistant_message_id = result.get('message_id')
-                        user_message_id = result.get('user_message_id')
-                        print()  # 换行
-                    elif result['type'] == 'error':
-                        print(f"\n❌ 错误: {result['error']}")
-                        return None
+                from app.core.stop_checker import create_cli_stop_checker
+                cli_checker = create_cli_stop_checker()
+                cli_checker.reset()  # 重置状态
+                should_stop = cli_checker.should_stop
+            except Exception:
+                # 如果无法创建检查器（如在某些环境中），使用 None
+                should_stop = None
+        
+        # 内部生成器函数
+        def _generate():
+            if self.id is None:
+                yield {'type': 'error', 'error': '会话尚未保存到数据库，请先调用 save() 方法'}
+                return
+            
+            # 参数校验：user_content 与 user_message_id 二选一
+            if user_message_id is not None and user_content:
+                yield {'type': 'error', 'error': 'user_content 和 user_message_id 不能同时提供，请二选一。正常对话：只传 user_content；对比模型回答：只传 user_message_id'}
+                return
+            if user_message_id is None and not user_content:
+                yield {'type': 'error', 'error': '需要提供 user_content（正常对话）或 user_message_id（二选一）'}
+                return
+            
+            # ========== 模式2：对比模型回答（基于已有 user_message_id） ==========
+            if user_message_id is not None:
+                from app.core.db_model_op import ConversationOp, MessageOp  # 延迟导入，避免循环依赖
                 
-                # 返回完成信息
-                if assistant_message_id and user_message_id:
-                    return {
-                        'message_id': assistant_message_id,
-                        'user_message_id': user_message_id
-                    }
-                return None
-            except Exception as e:
-                print(f"\n❌ 异常: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                return None
+                # 验证用户消息是否存在
+                with MessageOp() as msg_op:
+                    user_msg = msg_op.get_by_id(user_message_id)
+                
+                if not user_msg:
+                    yield {'type': 'error', 'error': f'指定的用户消息不存在，user_message_id={user_message_id}'}
+                    return
+                
+                if user_msg.conversation_id != self.id:
+                    yield {'type': 'error', 'error': f'用户消息 {user_message_id} 不属于当前会话（当前会话ID={self.id}）'}
+                    return
+                
+                # 使用 ConversationOp 的包装方法生成回答
+                with ConversationOp() as op:
+                    try:
+                        for result in op.generate_response_for_existing_message(
+                            conversation_id=self.id,
+                            user_message_id=user_message_id,
+                            model_name=model_name,
+                            save_response=save_response,
+                            should_stop=should_stop
+                        ):
+                            # 检查是否应该停止
+                            if should_stop and should_stop():
+                                yield {'type': 'interrupted', 'message': '用户中断生成'}
+                                return
+                            
+                            yield result
+                            
+                            # 如果保存成功，刷新当前会话的消息列表
+                            if result['type'] == 'done' and save_response and result.get('message_id'):
+                                self.refresh_messages()
+                    except KeyboardInterrupt:
+                        # 捕获 Ctrl+C（双重保险）
+                        yield {'type': 'interrupted', 'message': '检测到 Ctrl+C，已中断生成'}
+                        return
+                    except Exception as e:
+                        import traceback
+                        error_detail = traceback.format_exc()
+                        print(f"生成模型回答异常: {str(e)}")
+                        print(f"详细错误: {error_detail}")
+                        yield {'type': 'error', 'error': f'生成模型回答失败: {str(e)}'}
+                return
+            
+            # ========== 模式1：正常对话（创建新用户消息并落库） ==========
+            from app.core.db_model_op import ConversationOp  # 延迟导入，避免循环依赖
+            with ConversationOp() as op:
+                try:
+                    for result in op.send_message(
+                        conversation_id=self.id,
+                        user_content=user_content,
+                        model_name=model_name,
+                        auto_title=auto_title,
+                        should_stop=should_stop
+                    ):
+                        # 检查是否应该停止
+                        if should_stop and should_stop():
+                            yield {'type': 'interrupted', 'message': '用户中断生成'}
+                            return
+                        
+                        yield result
+                except KeyboardInterrupt:
+                    # 捕获 Ctrl+C（双重保险）
+                    yield {'type': 'interrupted', 'message': '检测到 Ctrl+C，已中断生成'}
+                    return
+                except Exception as e:
+                    import traceback
+                    error_detail = traceback.format_exc()
+                    print(f"发送消息异常: {str(e)}")
+                    print(f"详细错误: {error_detail}")
+                    yield {'type': 'error', 'error': f'发送消息失败: {str(e)}'}
+        
+        # 如果返回迭代器，直接返回生成器
+        if return_iterator:
+            return _generate()
+        
+        # 否则，消费生成器并打印到控制台
+        assistant_message_id = None
+        created_user_message_id = None
+        
+        try:
+            for result in _generate():
+                if result['type'] == 'chunk':
+                    print(result['chunk'], end='', flush=True)
+                elif result['type'] == 'done':
+                    assistant_message_id = result.get('message_id')
+                    created_user_message_id = result.get('user_message_id')
+                    print()  # 换行
+                    if save_response and assistant_message_id:
+                        print(f"✅ AI 回答已保存，消息ID: {assistant_message_id}")
+                elif result['type'] == 'error':
+                    print(f"\n❌ 错误: {result['error']}")
+                    return None
+            
+            # 返回完成信息
+            if assistant_message_id:
+                return {
+                    'message_id': assistant_message_id,
+                    'user_message_id': created_user_message_id or user_message_id
+                }
+            return None
+        except Exception as e:
+            import traceback
+            error_detail = traceback.format_exc()
+            print(f"处理消息异常: {str(e)}")
+            print(f"详细错误: {error_detail}")
+            return None
     
     def __repr__(self):
         """字符串表示"""

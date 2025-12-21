@@ -93,3 +93,33 @@ MessageUI.showError = function(message) {
     alert(message);
 };
 
+/**
+ * 清空消息区域
+ * @param {HTMLElement} container - 消息容器
+ */
+MessageUI.clearMessages = function(container) {
+    if (container) {
+        container.innerHTML = '';
+    }
+};
+
+/**
+ * 显示欢迎消息
+ * @param {HTMLElement} welcomeElement - 欢迎消息元素
+ */
+MessageUI.showWelcome = function(welcomeElement) {
+    if (welcomeElement) {
+        welcomeElement.style.display = 'block';
+    }
+};
+
+/**
+ * 隐藏欢迎消息
+ * @param {HTMLElement} welcomeElement - 欢迎消息元素
+ */
+MessageUI.hideWelcome = function(welcomeElement) {
+    if (welcomeElement) {
+        welcomeElement.style.display = 'none';
+    }
+};
+

@@ -2,7 +2,7 @@
 """
 聊天管理器 - 使用 LangChain 管理对话和生成AI回答（v0 简化版）
 """
-from typing import Optional, Generator, Union, Any, TYPE_CHECKING
+from typing import Optional, Generator, Union, Any, TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
     from langchain_openai import ChatOpenAI
@@ -12,9 +12,11 @@ from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationChain
 
 from app.core.coremodels import Message
-from app.core.db import MessageOp, ConversationOp
+from app.core.db_model_op import MessageOp, ConversationOp
 from app.core.llm_config import get_default_llm, get_llm
 from datetime import datetime
+import time
+import threading
 
 
 class ChatManager:
@@ -59,6 +61,7 @@ class ChatManager:
             ConversationBufferMemory: LangChain 内存对象
         """
         # 创建内存对象
+        print("user_message_id is ", user_message_id)
         memory = ConversationBufferMemory(
             return_messages=False,
             memory_key="history"
@@ -146,7 +149,8 @@ class ChatManager:
         llm: Union['ChatOpenAI', 'BaseChatModel', Any],
         memory: ConversationBufferMemory,
         user_message: str,
-        stream: bool = False
+        stream: bool = False,
+        should_stop: Optional[Callable[[], bool]] = None
     ) -> Union[str, Generator[str, None, None]]:
         """
         通用的生成回答方法（内部方法）
@@ -157,6 +161,7 @@ class ChatManager:
             memory: ConversationBufferMemory 实例
             user_message: 用户消息内容
             stream: 是否流式输出
+            should_stop: 中断检查函数，返回 True 时停止生成（可选）
         
         Returns:
             str: AI回答内容（stream=False 时）
@@ -171,7 +176,7 @@ class ChatManager:
         
         # 生成回答
         if stream:
-            return self.__generate_stream(conversation, user_message)
+            return self.__generate_stream(conversation, user_message, should_stop=should_stop)
         else:
             return self.__generate_normal(conversation, user_message)
     
@@ -200,7 +205,12 @@ class ChatManager:
             print(f"详细错误: {error_detail}")
             raise
     
-    def __generate_stream(self, conversation: ConversationChain, user_message: str) -> Generator[str, None, None]:
+    def __generate_stream(
+        self, 
+        conversation: ConversationChain, 
+        user_message: str,
+        should_stop: Optional[Callable[[], bool]] = None
+    ) -> Generator[str, None, None]:
         """
         生成流式回答（通用方法）
         通义千问和 DeepSeek 都使用此方法，确保逻辑一致
@@ -208,17 +218,27 @@ class ChatManager:
         Args:
             conversation: ConversationChain 实例
             user_message: 用户消息内容
+            should_stop: 中断检查函数，返回 True 时停止生成（可选）
         
         Yields:
             str: 流式输出的内容块
         """
+        # 记录开始时间
+        start_time = time.time()
+        
         # 获取 LLM 实例（从 conversation 中）
         llm = conversation.llm
         
         try:
             # 方法1：使用 ConversationChain 的流式方法（推荐）
             if hasattr(conversation, 'predict_stream'):
+                print("With predict_stream~~~")
                 for chunk in conversation.predict_stream(input=user_message):
+                    # 检查是否应该停止（在每个 chunk 前检查）
+                    if should_stop and should_stop():
+                        print("⏹️  流式输出已中断（用户取消）")
+                        return
+                    
                     # predict_stream 返回的可能是字符串或字典
                     if isinstance(chunk, str):
                         yield chunk
@@ -228,13 +248,77 @@ class ChatManager:
                             yield content
                     else:
                         yield str(chunk)
+                # 计算并输出生成时长
+                elapsed_time = time.time() - start_time
+                print(f"\n⏱️  生成答案耗时: {elapsed_time:.2f} 秒")
                 return
             
-            # 方法2：最后回退 - 模拟流式输出（逐字符）
-            response = conversation.predict(input=user_message)
-            for char in response:
-                yield char
-            return
+            # 方法2：直接使用 LLM 的 stream 方法（真正的流式输出）
+            # 我们已经在 memory 里构造好了历史，这里直接复用，不再重新解析字符串
+            print("With direct LLM stream ~~~")
+            try:
+                from langchain_core.messages import HumanMessage
+            except ImportError:
+                from langchain.schema import HumanMessage
+            
+            messages = []
+            if hasattr(conversation, "memory") and hasattr(conversation.memory, "chat_memory"):
+                chat_memory = conversation.memory.chat_memory
+                # ConversationBufferMemory 内部已经维护了 BaseMessage 列表
+                if hasattr(chat_memory, "messages") and chat_memory.messages:
+                    messages.extend(chat_memory.messages)
+            
+            # 无论是否有历史，最后都追加当前这条用户消息
+            messages.append(HumanMessage(content=user_message))
+            
+            # 使用 LLM 的 stream 方法进行真正的流式输出
+            if hasattr(llm, 'stream'):
+                for chunk in llm.stream(messages):
+                    # 检查是否应该停止（在每个 chunk 前检查）
+                    if should_stop and should_stop():
+                        print("⏹️  流式输出已中断（用户取消）")
+                        return
+                    
+                    # 处理 chunk（可能是不同类型的对象）
+                    if hasattr(chunk, 'content'):
+                        content = chunk.content
+                        if content:
+                            yield content
+                    elif isinstance(chunk, str):
+                        if chunk:
+                            yield chunk
+                    elif isinstance(chunk, dict):
+                        content = chunk.get('content', chunk.get('text', ''))
+                        if content:
+                            yield content
+                    else:
+                        # 尝试获取 delta 内容
+                        if hasattr(chunk, 'delta') and hasattr(chunk.delta, 'content'):
+                            content = chunk.delta.content
+                            if content:
+                                yield content
+                        else:
+                            # 最后尝试转换为字符串
+                            chunk_str = str(chunk) if chunk else ''
+                            if chunk_str:
+                                yield chunk_str
+                # 计算并输出生成时长
+                elapsed_time = time.time() - start_time
+                print(f"\n⏱️  生成答案耗时: {elapsed_time:.2f} 秒")
+                return
+            else:
+                # 如果 LLM 不支持 stream，回退到逐字符输出
+                response = conversation.predict(input=user_message)
+                for char in response:
+                    # 检查是否应该停止（在每个字符前检查）
+                    if should_stop and should_stop():
+                        print("⏹️  流式输出已中断（用户取消）")
+                        return
+                    yield char
+                # 计算并输出生成时长
+                elapsed_time = time.time() - start_time
+                print(f"\n⏱️  生成答案耗时: {elapsed_time:.2f} 秒")
+                return
                     
         except Exception as e:
             # 如果流式失败，回退到普通输出并模拟流式
@@ -246,10 +330,19 @@ class ChatManager:
             try:
                 response = conversation.predict(input=user_message)
                 for char in response:
+                    # 检查是否应该停止（在回退模式中也要检查）
+                    if should_stop and should_stop():
+                        print("⏹️  流式输出已中断（用户取消）")
+                        return
                     yield char
+                # 计算并输出生成时长
+                elapsed_time = time.time() - start_time
+                print(f"\n⏱️  生成答案耗时: {elapsed_time:.2f} 秒")
             except Exception as e2:
                 # 如果连普通输出都失败，返回错误信息
+                elapsed_time = time.time() - start_time
                 yield f"\n\n[错误: {str(e2)}]"
+                print(f"\n⏱️  生成答案耗时: {elapsed_time:.2f} 秒（失败）")
     
     def generate_response_for_user_message(
         self,
@@ -258,7 +351,8 @@ class ChatManager:
         user_message_id: Optional[int] = None,
         model_name: Optional[str] = None,
         stream: bool = False,
-        exclude_last_user: bool = False
+        exclude_last_user: bool = False,
+        should_stop: Optional[Callable[[], bool]] = None
     ) -> Union[str, Generator]:
         """
         生成模型回答（统一方法）
@@ -310,7 +404,8 @@ class ChatManager:
             llm=llm,
             memory=memory,
             user_message=user_message,
-            stream=stream
+            stream=stream,
+            should_stop=should_stop
         )
     
     
@@ -322,7 +417,8 @@ class ChatManager:
         user_message: Message,
         model_name: str,
         precomputed_order_index: Optional[int] = None,
-        auto_title: bool = False
+        auto_title: bool = False,
+        should_stop: Optional[Callable[[], bool]] = None
     ) -> Generator[dict, None, None]:
         """
         生成助手回答并保存到数据库（流式）
@@ -348,6 +444,9 @@ class ChatManager:
                 - type='error': {'type': 'error', 'error': str}
         """
         assistant_content = ""
+        generation_start_time = time.time()  # 记录生成开始时间
+        message_saved = False  # 标记消息是否已保存，避免重复保存
+        
         try:
             # 生成流式回答（Peer 架构）
             for chunk in self.generate_response_for_user_message(
@@ -355,30 +454,157 @@ class ChatManager:
                 user_message=user_message.content,
                 user_message_id=user_message_id,
                 model_name=model_name,
-                stream=True
+                stream=True,
+                should_stop=should_stop
             ):
+                # 检查是否应该停止
+                if should_stop and should_stop():
+                    # 中断时也要保存已生成的内容
+                    generation_time = time.time() - generation_start_time
+                    saved_message = self._save_assistant_message(
+                        conversation_id=conversation_id,
+                        user_message=user_message,
+                        assistant_content=assistant_content,
+                        model_name=model_name,
+                        precomputed_order_index=precomputed_order_index,
+                        generation_time=generation_time,
+                        auto_title=auto_title
+                    )
+                    message_saved = True  # 标记已保存
+                    if saved_message:
+                        yield {
+                            'type': 'interrupted',
+                            'message': '用户中断生成',
+                            'message_id': saved_message.id,
+                            'user_message_id': user_message_id
+                        }
+                    else:
+                        yield {
+                            'type': 'interrupted', 
+                            'message': '用户中断生成',
+                            'message_id': None,
+                            'user_message_id': user_message_id
+                        }
+                    return
+                
                 assistant_content += chunk
                 # 发送数据块
                 yield {'type': 'chunk', 'chunk': chunk}
             
+            # 计算生成时长
+            generation_time = time.time() - generation_start_time
+            
             # 流式输出完成，保存AI回答到数据库
-            # 计算 order_index
-            if precomputed_order_index is not None:
-                order_index = precomputed_order_index
-            else:
-                # 流式后计算：助手消息应该紧跟在用户消息之后
-                order_index = (user_message.order_index or 0) + 1
-            
-            # 创建助手消息
-            assistant_message = Message(
+            saved_message = self._save_assistant_message(
                 conversation_id=conversation_id,
-                role='assistant',
-                content=assistant_content,
-                order_index=order_index,
-                model=model_name
+                user_message=user_message,
+                assistant_content=assistant_content,
+                model_name=model_name,
+                precomputed_order_index=precomputed_order_index,
+                generation_time=generation_time,
+                auto_title=auto_title
             )
+            message_saved = True  # 标记已保存
             
-            # 保存助手消息和更新会话
+            # 发送完成信号
+            yield {
+                'type': 'done',
+                'message_id': saved_message.id,
+                'user_message_id': user_message_id
+            }
+            
+        except GeneratorExit:
+            # 生成器被关闭（客户端断开连接），也要保存已生成的内容
+            # 但如果已经在 should_stop 检查时保存过了，就不再重复保存
+            # 注意：GeneratorExit 时无法 yield，因为生成器已经关闭
+            if not message_saved:
+                generation_time = time.time() - generation_start_time
+                try:
+                    saved_message = self._save_assistant_message(
+                        conversation_id=conversation_id,
+                        user_message=user_message,
+                        assistant_content=assistant_content,
+                        model_name=model_name,
+                        precomputed_order_index=precomputed_order_index,
+                        generation_time=generation_time,
+                        auto_title=auto_title
+                    )
+                    if saved_message:
+                        yield {
+                            'type': 'interrupted',
+                            'message': '用户中断生成',
+                            'message_id': saved_message.id,
+                            'user_message_id': user_message_id
+                        }
+                    else:
+                        yield {
+                            'type': 'interrupted', 
+                            'message': '用户中断生成',
+                            'message_id': None,
+                            'user_message_id': user_message_id
+                        }
+                except Exception:
+                    # 保存失败不影响 GeneratorExit 的传播
+                    pass
+            # 重新抛出 GeneratorExit，让 Python 正常处理生成器关闭
+            raise
+        except Exception as e:
+            # AI API 调用失败，记录详细错误并返回
+            import traceback
+            error_detail = traceback.format_exc()
+            print(f"AI API调用失败: {str(e)}")
+            print(f"详细错误: {error_detail}")
+            # 发送错误信息
+            yield {'type': 'error', 'error': str(e)}
+    
+    def _save_assistant_message(
+        self,
+        conversation_id: int,
+        user_message: Message,
+        assistant_content: str,
+        model_name: str,
+        precomputed_order_index: Optional[int],
+        generation_time: float,
+        auto_title: bool
+    ) -> Optional[Message]:
+        """
+        保存助手消息到数据库（内部辅助方法）
+        
+        Args:
+            conversation_id: 会话ID
+            user_message: 用户消息对象
+            assistant_content: 助手消息内容（可能是不完整的）
+            model_name: 模型名称
+            precomputed_order_index: 预先计算的 order_index
+            generation_time: 生成耗时
+            auto_title: 是否自动生成会话标题
+        
+        Returns:
+            Message: 保存后的助手消息对象，如果保存失败返回 None
+        """
+        # 如果没有内容，不保存
+        if not assistant_content:
+            return None
+        
+        # 计算 order_index
+        if precomputed_order_index is not None:
+            order_index = precomputed_order_index
+        else:
+            # 流式后计算：助手消息应该紧跟在用户消息之后
+            order_index = (user_message.order_index or 0) + 1
+        
+        # 创建助手消息
+        assistant_message = Message(
+            conversation_id=conversation_id,
+            role='assistant',
+            content=assistant_content,
+            order_index=order_index,
+            model=model_name,
+            generation_time=generation_time
+        )
+        
+        # 保存助手消息和更新会话
+        try:
             with MessageOp() as msg_op, ConversationOp() as conv_op:
                 # 保存助手消息
                 saved_message = msg_op.create(assistant_message)
@@ -397,22 +623,12 @@ class ChatManager:
                     
                     conv_op.update(conversation)
             
-            # 发送完成信号
-            yield {
-                'type': 'done',
-                'message_id': saved_message.id,
-                'user_message_id': user_message_id
-            }
-            
-        except GeneratorExit:
-            # 生成器被关闭（客户端断开连接），不处理
-            raise
+            return saved_message
         except Exception as e:
-            # AI API 调用失败，记录详细错误并返回
+            # 保存失败，记录错误但不抛出异常
             import traceback
             error_detail = traceback.format_exc()
-            print(f"AI API调用失败: {str(e)}")
+            print(f"保存助手消息失败: {str(e)}")
             print(f"详细错误: {error_detail}")
-            # 发送错误信息
-            yield {'type': 'error', 'error': str(e)}
+            return None
     

@@ -83,8 +83,6 @@
 <script src="{{ url_for('static', filename='js/services/ClipboardService.js') }}"></script>
 <!-- 工具函数 -->
 <script src="{{ url_for('static', filename='js/utils/Utils.js') }}"></script>
-<!-- 消息组织工具 -->
-<script src="{{ url_for('static', filename='js/utils/messageOrganizer.js') }}"></script>
 
 <!-- ==================== 状态层 ==================== -->
 <!-- 聊天状态管理 -->
@@ -109,6 +107,8 @@
 <script src="{{ url_for('static', filename='js/ui/inputUI.js') }}"></script>
 
 <!-- ==================== 服务层 ==================== -->
+<!-- 消息服务 -->
+<script src="{{ url_for('static', filename='js/services/MessageService.js') }}"></script>
 <!-- 流式处理服务 -->
 <script src="{{ url_for('static', filename='js/services/streamingService.js') }}"></script>
 <!-- 聊天服务 -->
@@ -116,6 +116,7 @@
 
 <!-- ==================== 组件层 ==================== -->
 <!-- 领域模型 -->
+<script src="{{ url_for('static', filename='js/models/Conversation.js') }}"></script>
 <script src="{{ url_for('static', filename='js/models/Message.js') }}"></script>
 <script src="{{ url_for('static', filename='js/models/ModelResponse.js') }}"></script>
 <!-- 配置 -->
@@ -132,6 +133,8 @@
 <script src="{{ url_for('static', filename='js/components/MessageModelResponseManager.js') }}"></script>
 
 <!-- ==================== 业务层 ==================== -->
+<!-- 会话控制器（业务入口） -->
+<script src="{{ url_for('static', filename='js/controllers/ConversationController.js') }}"></script>
 <!-- 消息控制器（业务入口） -->
 <script src="{{ url_for('static', filename='js/controllers/MessageController.js') }}"></script>
 <!-- 消息组件（视图） -->

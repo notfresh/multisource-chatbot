@@ -57,3 +57,13 @@ InputUI.autoResizeInput = function(input) {
     input.style.height = Math.min(input.scrollHeight, 200) + 'px';
 };
 
+/**
+ * 聚焦输入框
+ * @param {HTMLElement} input - 输入框元素
+ */
+InputUI.focusInput = function(input) {
+    if (input) {
+        input.focus();
+    }
+};
+

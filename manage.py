@@ -15,7 +15,8 @@ from flask.cli import FlaskGroup, with_appcontext
 from flask import current_app
 import click
 from app import create_app
-from app.models import ShortURL, User, Conversation, Message
+from app.models import ShortURL, User
+from app.core.db import ConversationDBModel, MessageDBModel
 from app.db import db
 
 def create_app_for_cli(info=None):
@@ -31,8 +32,12 @@ def create_app_for_cli(info=None):
             db=db,
             ShortURL=ShortURL,
             User=User,
-            Conversation=Conversation,
-            Message=Message
+            # 原生 SQLAlchemy 模型（来自 app/core/db.py）
+            ConversationDBModel=ConversationDBModel,
+            MessageDBModel=MessageDBModel,
+            # 为了向后兼容，提供别名
+            Conversation=ConversationDBModel,
+            Message=MessageDBModel
         )
     
     return app

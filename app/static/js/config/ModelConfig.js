@@ -33,3 +33,6 @@ const ModelConfig = {
     }
 };
 
+// 导出到全局命名空间
+window.ModelConfig = ModelConfig;
+

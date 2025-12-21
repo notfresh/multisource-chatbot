@@ -6,7 +6,8 @@
 // 使用全局命名空间
 window.ConversationAPI = window.ConversationAPI || {};
 
-const API_BASE = '/api';
+// 使用 var 避免重复声明错误（如果其他文件也定义了 API_BASE）
+var API_BASE = window.API_BASE || '/api';
 
 /**
  * 获取会话列表

@@ -75,7 +75,9 @@ def create_app(flask_config='development', **kwargs):
     # 确保 SECRET_KEY 是字符串类型
     if 'SECRET_KEY' not in app.config or not isinstance(app.config['SECRET_KEY'], str):
         app.config['SECRET_KEY'] = 'so easy you are'
-    from . import models # 创建表
+    from . import models # 创建表（Flask-SQLAlchemy 模型）
+    # 导入原生 SQLAlchemy 模型（app/core/db.py），让 Flask-Migrate 能够检测到
+    from .core.db import ConversationDBModel, MessageDBModel, Base
     from . import errorhandlers
     errorhandlers.init_app(app)
     from . import db

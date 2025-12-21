@@ -139,32 +139,7 @@ class User(db.Model, UserMixin):
         return User.query.get(data['id'])
 
 
-class Conversation(db.Model):
-    """会话表 - v0 简化版"""
-    __tablename__ = 'conversations'
-    id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(200))  # 会话标题（自动生成或手动设置）
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.now)
-    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
-    
-    # 关联关系
-    messages = db.relationship('Message', backref='conversation', lazy='dynamic', cascade='all, delete-orphan')
-    
-    def __repr__(self):
-        return f'<Conversation {self.id}: {self.title}>'
-
-
-class Message(db.Model):
-    """消息表 - v0 简化版"""
-    __tablename__ = 'messages'
-    id = db.Column(db.Integer, primary_key=True)
-    conversation_id = db.Column(db.Integer, db.ForeignKey('conversations.id'), nullable=False)
-    role = db.Column(db.String(20), nullable=False)  # 'user' 或 'assistant'
-    content = db.Column(db.Text, nullable=False)  # 消息内容
-    created_at = db.Column(db.DateTime, default=datetime.now)
-    order_index = db.Column(db.Integer)  # 消息在会话中的顺序
-    model = db.Column(db.String(50), nullable=False, default='deepseek-chat')  # 模型标识：'deepseek-chat', 'qwen-max' 等
-    
-    def __repr__(self):
-        return f'<Message {self.id}: {self.role}>'
+# Conversation 和 Message 类已迁移到 app/core/db.py
+# 使用原生 SQLAlchemy 实现，不依赖 Flask-SQLAlchemy
+# 导入以供 Flask-Migrate 检测
+from app.core.db import ConversationDBModel, MessageDBModel, Base

@@ -33,8 +33,9 @@ def get_llm(provider: str = '302ai', model_name: Optional[str] = None):
     """
     if provider == '302ai':
         try:
+            import os
             from langchain_openai import ChatOpenAI
-            api_key = 'sk-8888888888888888888888888888888888888888888888888888888888888888'
+            api_key = os.environ['API_302_AI_KEY']
             if not api_key:
                 raise ValueError("API_302_AI_KEY 环境变量未设置")
             

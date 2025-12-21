@@ -45,10 +45,12 @@ from app.core.coremodels import (
     MessageRole
 )
 from app.core.db import (
+    MessageDBModel,
+    ConversationDBModel
+)
+from app.core.db_model_op import (
     ConversationOp,
     MessageOp,
-    MessageDBModel,
-    ConversationDBModel,
     get_conversation_by_id,
     get_conversations_by_user_id,
     create_conversation,
@@ -170,7 +172,7 @@ def shell():
     print("\n  # 直接使用 Conversation 实例发送消息（推荐）")
     print("  conv = Conversation.get_by_id(1)")
     print("  if conv:")
-    print("      result = conv.send_message('你好', model_name='deepseek-chat')")
+    print("      result = conv.send_message('你好', model_name='deepseek-chat|qwen-max')")
     print("      if result:")
     print("          print(f'助手消息ID: {result[\"message_id\"]}')")
     print("\n" + "=" * 60)

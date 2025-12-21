@@ -98,38 +98,53 @@ class MessageComponent {
             const selector = this.modelSelector.render();
             DOMUtils.append(wrapper, selector);
 
-            // 2. 添加已有模型回答
-            const existingResponses = this.message.alternative_responses || [];
+            // 2. 收集所有模型回答（包括默认模型和替代回答）
+            const allResponses = new Map();
+            
+            // 添加默认模型回答
+            if (this.message.content) {
+                const defaultModel = this.message.model || ModelConfig.default;
+                allResponses.set(defaultModel, {
+                    model: defaultModel,
+                    content: this.message.content,
+                    id: this.message.id
+                });
+            }
+            
+            // 添加替代回答
+            const existingResponses = this.message.alternativeResponses || [];
             existingResponses.forEach(response => {
-                const view = this.modelManager.add(
-                    response.model,
-                    response.content,
-                    response.id
-                );
-                if (view) {
-                    const viewElement = view.render();
-                    if (viewElement) {
-                        DOMUtils.append(wrapper, viewElement);
+                allResponses.set(response.model, response);
+            });
+
+            // 3. 按照 ModelConfig.available 的顺序添加模型回答视图
+            const availableModels = ModelConfig.available || [];
+            let defaultModelToExpand = null;
+            
+            availableModels.forEach(modelName => {
+                const response = allResponses.get(modelName);
+                if (response) {
+                    const view = this.modelManager.add(
+                        response.model,
+                        response.content,
+                        response.id
+                    );
+                    if (view) {
+                        const viewElement = view.render();
+                        if (viewElement) {
+                            DOMUtils.append(wrapper, viewElement);
+                        }
+                    }
+                    // 记录默认模型（用于展开）
+                    if (!defaultModelToExpand) {
+                        defaultModelToExpand = response.model;
                     }
                 }
             });
-
-            // 3. 如果有默认模型回答，添加它
-            if (this.message.content) {
-                const defaultModel = this.message.model || ModelConfig.default;
-                const view = this.modelManager.add(
-                    defaultModel,
-                    this.message.content,
-                    this.message.id
-                );
-                if (view) {
-                    const viewElement = view.render();
-                    if (viewElement) {
-                        DOMUtils.append(wrapper, viewElement);
-                    }
-                }
-                // 默认展开
-                this.modelManager.toggle(defaultModel);
+            
+            // 4. 默认展开第一个模型（与选择器顺序一致）
+            if (defaultModelToExpand) {
+                this.modelManager.toggle(defaultModelToExpand);
             }
         }
 

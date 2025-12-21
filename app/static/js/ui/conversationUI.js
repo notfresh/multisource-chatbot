@@ -9,7 +9,7 @@ window.ConversationUI = window.ConversationUI || {};
 /**
  * 渲染会话列表
  * @param {HTMLElement} container - 容器元素
- * @param {Array} conversations - 会话列表
+ * @param {Array<Conversation>} conversations - 会话列表（Conversation 模型实例）
  * @param {number} currentConversationId - 当前会话ID
  * @param {Function} onSelect - 选择会话回调 (conversationId) => void
  * @param {Function} onDelete - 删除会话回调 (conversationId) => void
@@ -31,11 +31,11 @@ ConversationUI.renderConversationList = function(container, conversations, curre
         
         const title = document.createElement('div');
         title.className = 'conversation-title';
-        title.textContent = conv.title || '新对话';
+        title.textContent = conv.getDisplayTitle();
         
         const meta = document.createElement('div');
         meta.className = 'conversation-meta';
-        meta.textContent = `${conv.message_count} 条消息`;
+        meta.textContent = `${conv.getMessageCount()} 条消息`;
         
         const deleteBtn = document.createElement('button');
         deleteBtn.className = 'delete-btn';

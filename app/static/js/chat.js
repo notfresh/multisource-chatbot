@@ -16,6 +16,7 @@ let stopButton;
 let btnNewConversation;
 
 // ==================== 全局服务实例 ====================
+let conversationController;
 let chatService;
 
 // ==================== 初始化 ====================
@@ -30,7 +31,8 @@ document.addEventListener('DOMContentLoaded', function() {
         'StreamingService': typeof window.StreamingService !== 'undefined',
         'StreamHandler': typeof window.StreamHandler !== 'undefined',
         'chatState': typeof window.chatState !== 'undefined',
-        'MessageOrganizer': typeof window.MessageOrganizer !== 'undefined',
+        'MessageService': typeof window.MessageService !== 'undefined',
+        'ConversationController': typeof window.ConversationController !== 'undefined',
         'ChatService': typeof window.ChatService !== 'undefined'
     };
     
@@ -57,6 +59,12 @@ document.addEventListener('DOMContentLoaded', function() {
     stopButton = document.getElementById('stopButton');
     btnNewConversation = document.getElementById('btnNewConversation');
     
+    // 将 DOM 元素挂载到 window 上，供其他模块访问
+    window.chatMessages = chatMessages;
+    window.messageInput = messageInput;
+    window.sendButton = sendButton;
+    window.stopButton = stopButton;
+    
     // 检查必要的 DOM 元素是否存在
     if (!conversationList || !chatMessages || !welcomeMessage || 
         !messageInput || !sendButton || !stopButton || !btnNewConversation) {
@@ -64,16 +72,32 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
     }
     
-    // 初始化聊天服务
-    chatService = new ChatService();
+    // 初始化会话控制器
+    conversationController = new ConversationController({
+        conversationList: conversationList,
+        chatMessages: chatMessages,
+        welcomeMessage: welcomeMessage,
+        messageInput: messageInput
+    });
+    
+    // 初始化聊天服务（传入会话控制器）
+    chatService = new ChatService(conversationController);
+    
+    // 将 chatService 挂载到 window 上，供其他模块访问
+    window.chatService = chatService;
     
     // 加载会话列表
-    chatService.loadConversations();
+    conversationController.loadConversations();
     
     // 事件监听
     sendButton.addEventListener('click', () => chatService.sendMessage());
-    stopButton.addEventListener('click', () => chatService.stopStreaming());
-    btnNewConversation.addEventListener('click', () => chatService.createNewConversation());
+    stopButton.addEventListener('click', () => {
+        // stopStreaming 现在是异步的，但不需等待
+        chatService.stopStreaming().catch(err => {
+            console.error('停止流式输出失败:', err);
+        });
+    });
+    btnNewConversation.addEventListener('click', () => conversationController.createNewConversation());
     
     // Enter 发送，Shift+Enter 换行
     messageInput.addEventListener('keydown', function(e) {

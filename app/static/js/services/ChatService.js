@@ -1,142 +1,15 @@
 /**
  * 聊天服务类
  * 封装可复用的聊天功能，供多个页面使用
+ * 专注于消息发送和流式处理，会话管理由 ConversationController 负责
  */
 class ChatService {
-    
-
     /**
-     * 加载会话列表
+     * @param {ConversationController} conversationController - 会话控制器实例
      */
-    async loadConversations() {
-        try {
-            const conversations = await ConversationAPI.getConversations();
-            if (!conversations) return;
-            
-            ConversationUI.renderConversationList(
-                conversationList,
-                conversations,
-                chatState.getConversationId(),
-                this.handleConversationSelect.bind(this),
-                this.handleConversationDelete.bind(this)
-            );
-            
-            // 如果有会话，默认加载第一个
-            if (conversations.length > 0 && !chatState.getConversationId()) {
-                await this.loadConversation(conversations[0].id);
-            }
-        } catch (error) {
-            console.error('加载会话列表失败:', error);
-            MessageUI.showError('加载会话列表失败: ' + error.message);
-        }
-    }
-
-    /**
-     * 加载会话详情
-     */
-    async loadConversation(conversationId) {
-        try {
-            chatState.setConversationId(conversationId);
-            
-            const conversation = await ConversationAPI.getConversation(conversationId);
-            MessageUI.renderMessages(
-                chatMessages,
-                welcomeMessage,
-                conversation.messages,
-                MessageOrganizer.organizeMessages
-            );
-            
-            // 更新会话列表的激活状态
-            ConversationUI.updateActiveConversation(conversationList, conversationId);
-            
-            // 重新加载会话列表以更新消息数量
-            this.loadConversations();
-        } catch (error) {
-            console.error('加载会话失败:', error);
-            MessageUI.showError('加载会话失败: ' + error.message);
-        }
-    }
-
-    /**
-     * 创建新会话
-     */
-    async createNewConversation() {
-        try {
-            const conversation = await ConversationAPI.createConversation('新对话');
-            if (!conversation) return;
-            
-            chatState.setConversationId(conversation.id);
-            
-            // 清空消息区域
-            chatMessages.innerHTML = '';
-            welcomeMessage.style.display = 'block';
-            
-            // 重新加载会话列表
-            this.loadConversations();
-            
-            // 聚焦输入框
-            messageInput.focus();
-        } catch (error) {
-            console.error('创建会话失败:', error);
-            MessageUI.showError('创建会话失败: ' + error.message);
-        }
-    }
-    
-    /**
-     * 处理会话选择
-     */
-    handleConversationSelect(conversationId) {
-        this.loadConversation(conversationId);
-    }
-
-    /**
-     * 处理会话删除
-     */
-    async handleConversationDelete(conversationId) {
-        if (!confirm('确定要删除这个会话吗？')) {
-            return;
-        }
-        
-        try {
-            await ConversationAPI.deleteConversation(conversationId);
-            
-            // 如果删除的是当前会话，清空消息区域
-            if (conversationId === chatState.getConversationId()) {
-                chatState.setConversationId(null);
-                chatMessages.innerHTML = '';
-                welcomeMessage.style.display = 'block';
-            }
-            
-            // 重新加载会话列表
-            this.loadConversations();
-        } catch (error) {
-            console.error('删除会话失败:', error);
-            MessageUI.showError('删除会话失败: ' + error.message);
-        }
-    }
-
-    /**
-     * 确保有会话ID（如果没有则创建）
-     */
-    async ensureConversationId() {
-        let conversationId = chatState.getConversationId();
-        
-        if (!conversationId) {
-            const conversation = await ConversationAPI.createConversation('新对话');
-            if (!conversation) return null;
-            
-            conversationId = conversation.id;
-            chatState.setConversationId(conversationId);
-            
-            // 清空消息区域并隐藏欢迎消息
-            chatMessages.innerHTML = '';
-            welcomeMessage.style.display = 'none';
-            
-            // 重新加载会话列表
-            this.loadConversations();
-        }
-        
-        return conversationId;
+    constructor(conversationController) {
+        this.conversationController = conversationController;
+        this.currentOnComplete = null;  // 存储当前的 onComplete 回调
     }
 
     //////////////////////////////////////////////////////////////////
@@ -178,7 +51,10 @@ class ChatService {
         messageComponent.addModelResponse(modelResponse);
         
         // 显示停止按钮
-        InputUI.setStopButtonState(stopButton, { visible: true, disabled: false });
+        const stopButton = window.stopButton;
+        if (stopButton) {
+            InputUI.setStopButtonState(stopButton, { visible: true, disabled: false });
+        }
         
         // 开始流式输出
         const abortController = chatState.startStreaming();
@@ -195,14 +71,16 @@ class ChatService {
             if (!response) return;
             
             // 处理流式响应
+            const chatMessages = window.chatMessages;
+            const stopButton = window.stopButton;
             await StreamingService.handleStreaming(response.body,
                 StreamingService.createRequestModelCallbacks({
                     messageComponent,
                     modelResponse,
                     modelName,
-                    chatMessages,
-                    stopButton,
-                    onComplete: () => this.loadConversations()
+                    chatMessages: chatMessages || null,
+                    stopButton: stopButton || null,
+                    onComplete: () => this.conversationController.loadConversations()
                 })
             );
             
@@ -212,7 +90,10 @@ class ChatService {
         } finally {
             // 恢复按钮状态
             chatState.endStreaming();
-            InputUI.setStopButtonState(stopButton, { visible: false });
+            const stopButton = window.stopButton;
+            if (stopButton) {
+                InputUI.setStopButtonState(stopButton, { visible: false });
+            }
         }
     }
 
@@ -240,24 +121,11 @@ class ChatService {
      */
     async handleSendMessageError(error, response, conversationId, userMessageDiv, aiMessageHandle) {
         // 如果是用户主动中断，不显示错误
+        // 注意：后端已经在 GeneratorExit 时自动保存了部分内容，不需要前端再保存
         if (error.name === 'AbortError' || !chatState.isStreamingNow()) {
-            console.log('请求已中断');
-                // 保存部分内容
-                try {
-                    const fullContent = await StreamingService.handleStreaming(
-                        response?.body || new ReadableStream(),
-                        {
-                            onChunk: () => {},
-                            shouldStop: () => true
-                        }
-                    );
-                    if (fullContent) {
-                        await MessageAPI.savePartialMessage(conversationId, fullContent);
-                        this.loadConversations();
-                    }
-                } catch (e) {
-                    console.error('保存部分消息失败:', e);
-                }
+            console.log('请求已中断（后端已自动保存部分内容）');
+            // 刷新会话列表，以显示后端保存的消息
+            this.conversationController.loadConversations();
         } else {
             console.error('发送消息失败:', error);
             MessageUI.showError('发送消息失败: ' + error.message);
@@ -272,13 +140,23 @@ class ChatService {
      * 发送消息
      */
     async sendMessage() {
+        const messageInput = window.messageInput;
+        const sendButton = window.sendButton;
+        const stopButton = window.stopButton;
+        const chatMessages = window.chatMessages;
+        
+        if (!messageInput || !sendButton || !stopButton || !chatMessages) {
+            console.error('必要的 DOM 元素未找到');
+            return;
+        }
+        
         const content = messageInput.value.trim();
         if (!content) {
             return;
         }
         
-        // 确保有会话ID
-        const conversationId = await this.ensureConversationId();
+        // 确保有会话ID（通过 ConversationController）
+        const conversationId = await this.conversationController.ensureConversationId();
         if (!conversationId) {
             return;
         }
@@ -355,6 +233,15 @@ class ChatService {
                 throw new Error('服务器响应异常：响应体为空');
             }
             
+            // 创建 onComplete 回调
+            const onCompleteCallback = () => {
+                this.conversationController.loadConversations();
+                this.currentOnComplete = null;  // 清理
+            };
+            
+            // 存储当前的 onComplete 回调，以便在 stopStreaming 中使用
+            this.currentOnComplete = onCompleteCallback;
+            
             // 处理流式响应
             await StreamingService.handleStreaming(response.body, 
                 StreamingService.createSendMessageCallbacks({
@@ -365,7 +252,7 @@ class ChatService {
                     stopButton,
                     // 把用户消息 DOM 也传进去，方便在 onDone 里补充 userMessageId
                     userMessageHandle: userMessageDiv,
-                    onComplete: () => this.loadConversations()
+                    onComplete: onCompleteCallback
                 })
             );
             
@@ -373,6 +260,8 @@ class ChatService {
             // 处理错误
             await this.handleSendMessageError(error, response, conversationId, userMessageDiv, aiMessageHandle);
         } finally {
+            // 清理 onComplete 回调
+            this.currentOnComplete = null;
             // 确保状态被重置
             chatState.endStreaming();
             InputUI.setStopButtonState(stopButton, { visible: false });
@@ -381,11 +270,80 @@ class ChatService {
     }
 
     /**
-     * 停止流式输出
+     * 停止流式输出（软中断）
+     * 先调用后端中断 API，如果失败则使用硬中断（abort）
      */
-    stopStreaming() {
-        if (chatState.isStreamingNow()) {
+    async stopStreaming() {
+        if (!chatState.isStreamingNow()) {
+            return;
+        }
+        
+        const conversationId = chatState.getConversationId();
+        const stopButton = window.stopButton;
+        
+        // 先尝试软中断（调用后端 API）
+        if (conversationId) {
+            try {
+                const success = await MessageAPI.stopMessageGeneration(conversationId);
+                if (success) {
+                    console.log('已发送停止信号到服务器');
+                    // 等待服务器返回 interrupted 消息，不立即 abort
+                    // interrupted 消息会触发 onDone，进而调用 onComplete
+                    // 如果服务器响应慢，设置超时后使用硬中断，并手动调用 onComplete
+                    setTimeout(() => {
+                        if (chatState.isStreamingNow()) {
+                            console.warn('软中断超时，使用硬中断');
+                            // 如果超时，手动调用 onComplete（如果存在）
+                            if (this.currentOnComplete) {
+                                try {
+                                    this.currentOnComplete();
+                                } catch (e) {
+                                    console.error('调用 onComplete 失败:', e);
+                                }
+                            }
+                            chatState.stopStreaming(); // 硬中断作为兜底
+                        }
+                    }, 2000); // 2秒超时
+                } else {
+                    // 软中断失败，使用硬中断
+                    console.warn('软中断失败，使用硬中断');
+                    // 手动调用 onComplete（如果存在）
+                    if (this.currentOnComplete) {
+                        try {
+                            this.currentOnComplete();
+                        } catch (e) {
+                            console.error('调用 onComplete 失败:', e);
+                        }
+                    }
+                    chatState.stopStreaming();
+                }
+            } catch (error) {
+                console.error('调用停止 API 失败:', error);
+                // 出错时使用硬中断，并手动调用 onComplete（如果存在）
+                if (this.currentOnComplete) {
+                    try {
+                        this.currentOnComplete();
+                    } catch (e) {
+                        console.error('调用 onComplete 失败:', e);
+                    }
+                }
+                chatState.stopStreaming();
+            }
+        } else {
+            // 没有会话ID，直接使用硬中断
+            // 手动调用 onComplete（如果存在）
+            if (this.currentOnComplete) {
+                try {
+                    this.currentOnComplete();
+                } catch (e) {
+                    console.error('调用 onComplete 失败:', e);
+                }
+            }
             chatState.stopStreaming();
+        }
+        
+        // 更新按钮状态
+        if (stopButton) {
             InputUI.setStopButtonState(stopButton, { visible: true, disabled: true, text: '已停止' });
         }
     }
@@ -394,5 +352,4 @@ class ChatService {
 // 导出 ChatService 类
 window.ChatService = ChatService;
 
-// 创建全局实例
-window.chatService = new ChatService();
+// 注意：全局实例在 chat.js 中创建，因为需要 ConversationController 参数

@@ -70,6 +70,17 @@ StreamHandler.handleStream = async function(stream, callbacks) {
                                     fullContent
                                 });
                             }
+                        } else if (data.type === 'interrupted') {
+                            // 用户中断生成（后端已自动保存）
+                            if (onDone) {
+                                onDone({
+                                    messageId: data.message_id || null,
+                                    userMessageId: data.user_message_id || null,
+                                    fullContent
+                                });
+                            }
+                            // 中断后停止读取
+                            break;
                         } else if (data.type === 'error') {
                             // 服务器返回错误
                             if (onError) {

@@ -22,10 +22,30 @@ logger = logging.getLogger('alembic.env')
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
 from flask import current_app
+
+# 导入原生 SQLAlchemy 模型（app/core/db.py）
+# 这些模型使用独立的 Base，需要合并到 Flask-SQLAlchemy 的 metadata 中
+try:
+    from app.core.db import Base as CoreBase, ConversationDBModel, MessageDBModel
+    # 合并原生 SQLAlchemy 的 metadata 到 Flask-SQLAlchemy 的 metadata
+    # 这样 Flask-Migrate 就能检测到这些模型了
+    from sqlalchemy import MetaData
+    flask_metadata = current_app.extensions['migrate'].db.metadata
+    core_metadata = CoreBase.metadata
+    
+    # 将 core 模型的表添加到 Flask metadata 中
+    for table_name, table in core_metadata.tables.items():
+        if table_name not in flask_metadata.tables:
+            table.tometadata(flask_metadata)
+    
+    target_metadata = flask_metadata
+except ImportError:
+    # 如果导入失败，只使用 Flask-SQLAlchemy 的 metadata
+    target_metadata = current_app.extensions['migrate'].db.metadata
+
 config.set_main_option(
     'sqlalchemy.url',
     str(current_app.extensions['migrate'].db.engine.url).replace('%', '%%'))
-target_metadata = current_app.extensions['migrate'].db.metadata
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

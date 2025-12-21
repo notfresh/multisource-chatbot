@@ -6,168 +6,98 @@ from flask import request, jsonify, Response, stream_with_context
 from flask_login import login_required, current_user
 from datetime import datetime
 import json
-from app.ai.chat_manager import ChatManager
-from app.models import Conversation, Message, db
+import threading
+from app.core.coremodels import Conversation, Message
+from app.core.stop_checker import WebStopChecker
 from .blueprint import api
 
-chat_manager = ChatManager()  # 聊天管理器
-
-def _generate_assistant_response_stream(
-    conversation_id,
-    user_message,
-    model_name,
-    precomputed_order_index=None,
-    auto_title=False
-):
-    """
-    通用的流式生成助手回答函数
-    
-    Args:
-        conversation_id: 会话ID
-        user_message: 用户消息对象
-        model_name: 模型名称
-        precomputed_order_index: 预先计算的 order_index（如果为 None，则流式后计算）
-        auto_title: 是否自动生成会话标题（仅第一条消息时）
-    
-    Yields:
-        str: SSE 格式的数据流
-    """
-    assistant_content = ""
-    try:
-        # 生成流式回答（Peer 架构）
-        for chunk in chat_manager.generate_response_for_user_message(
-            conversation_id=conversation_id,
-            user_message_id=user_message.id,
-            user_message=user_message.content,
-            model_name=model_name,
-            stream=True
-        ):
-            assistant_content += chunk
-            # 发送数据块
-            yield f"data: {json.dumps({'chunk': chunk, 'type': 'chunk'})}\n\n"
-        
-        # 流式输出完成，保存AI回答到数据库
-        # 计算 order_index
-        if precomputed_order_index is not None: #TODO
-            order_index = precomputed_order_index
-        else:
-            # 流式后计算：助手消息应该紧跟在用户消息之后
-            # 用户消息的 order_index 是偶数，助手消息应该是奇数（+1）
-            order_index = user_message.order_index + 1
-        
-        # 即使内容为空也要保存（可能是API返回了空内容）
-        assistant_message = Message(
-            conversation_id=conversation_id,
-            role='assistant',
-            content=assistant_content,
-            order_index=order_index,
-            model=model_name
-        )
-        db.session.add(assistant_message)
-        
-        # 更新会话的 updated_at
-        conversation = Conversation.query.get(conversation_id)
-        conversation.updated_at = datetime.now()
-        
-        # 如果这是第一条消息，自动生成会话标题
-        if auto_title:
-            message_count = Message.query.filter_by(
-                conversation_id=conversation_id
-            ).count()
-            if message_count == 1 and (not conversation.title or conversation.title == '新对话'):
-                title = user_message.content[:20] if len(user_message.content) > 20 else user_message.content
-                conversation.title = title
-        
-        db.session.commit()
-        
-        # 发送完成信号（确保总是发送）
-        # 同时把用户消息ID也一并返回，方便前端建立 user_message 与 assistant_message 的关联
-        yield f"data: {json.dumps({'type': 'done', 'message_id': assistant_message.id, 'user_message_id': user_message.id})}\n\n"
-        
-    except GeneratorExit:
-        # 生成器被关闭（客户端断开连接），不处理
-        raise
-    except Exception as e:
-        # AI API 调用失败，记录详细错误并返回
-        import traceback
-        error_detail = traceback.format_exc()
-        print(f"AI API调用失败: {str(e)}")
-        print(f"详细错误: {error_detail}")
-        # 发送错误信息（确保前端能收到错误信号）
-        try:
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
-        except:
-            # 如果连错误信号都发送失败，忽略
-            pass
+# 全局字典：存储每个会话的停止检查器
+# key: (conversation_id, user_id), value: WebStopChecker
+_stop_checkers = {}
+_checkers_lock = threading.Lock()
 
 
 @api.route('/conversations/<int:conversation_id>/messages', methods=['POST'])
 @login_required
 def send_message(conversation_id):
     """发送消息并获取AI回答"""
-    # 验证会话是否存在和所有权
-    conversation = Conversation.query.get(conversation_id)
-    if not conversation:
-        return jsonify({'error': '会话不存在'}), 404
-    if conversation.user_id != current_user.id:
-        return jsonify({'error': 'Unauthorized'}), 403
-    
-    data = request.get_json()
-    user_content = data.get('content', '')
-    # 从请求中获取模型名称，如果没有则使用默认值
-    default_model = data.get('model', 'deepseek-chat')
-    
-    if not user_content:
-        return jsonify({'error': 'Content is required'}), 400
-    
-    # 获取最后一条消息的 order_index，用于设置新消息的 order_index
-    last_message = Message.query.filter_by(
-        conversation_id=conversation_id
-    ).order_by(Message.order_index.desc()).first()
-    
-    # 计算新用户消息的 order_index
-    if last_message is None:
-        # 如果会话中没有消息，从0开始
-        new_order_index = 0
-    else:
-        # 如果最后一条是用户消息（偶数），新用户消息 = 最后一条 + 2
-        # 如果最后一条是助手消息（奇数），新用户消息 = 最后一条 + 1
-        if last_message.order_index % 2 == 0:  # 最后是用户消息，把前一条达模型消息给强制终止了
-            new_order_index = last_message.order_index + 2
-        else:  # 最后是助手消息
-            new_order_index = last_message.order_index + 1
-    
-    # 创建用户消息
-    user_message = Message(
-        conversation_id=conversation_id,
-        role='user',
-        content=user_content,
-        order_index=new_order_index,
-        model=default_model  # 使用请求中的模型或默认值
-    )
-    db.session.add(user_message)
-    db.session.commit()
-    
-    # 使用流式输出
-    def generate_stream():
-        yield from _generate_assistant_response_stream(
-            conversation_id=conversation_id,
-            user_message=user_message,
-            model_name=default_model,
-            precomputed_order_index=user_message.order_index + 1,
-            auto_title=True
+    try:
+        if not current_user or not current_user.is_authenticated:
+            return jsonify({'error': '未登录'}), 401
+        
+        # 使用 core 层的 Conversation.get_by_id() 方法获取会话
+        conversation = Conversation.get_by_id(conversation_id)
+        if not conversation:
+            return jsonify({'error': '会话不存在'}), 404
+        if conversation.user_id != current_user.id:
+            return jsonify({'error': 'Unauthorized'}), 403
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Invalid request'}), 400
+        
+        user_content = data.get('content', '')
+        # 从请求中获取模型名称，如果没有则使用默认值
+        model_name = data.get('model', 'deepseek-chat')
+        
+        if not user_content:
+            return jsonify({'error': 'Content is required'}), 400
+        
+        # 创建停止检查器并存储
+        stop_checker = WebStopChecker()
+        checker_key = (conversation_id, current_user.id)
+        
+        with _checkers_lock:
+            # 如果已存在旧的检查器，先清理
+            if checker_key in _stop_checkers:
+                old_checker = _stop_checkers[checker_key]
+                old_checker.set_stop()  # 停止旧的生成
+            _stop_checkers[checker_key] = stop_checker
+        
+        # 使用 Conversation.send_message() 方法（优先使用 coremodels，返回迭代器）
+        def generate_stream():
+            try:
+                for result in conversation.send_message(
+                    user_content=user_content,
+                    model_name=model_name,
+                    auto_title=True,
+                    return_iterator=True,  # 返回迭代器，不打印到控制台
+                    should_stop=stop_checker.should_stop  # 传递停止检查器
+                ):
+                    if result['type'] == 'chunk':
+                        # 发送数据块
+                        yield f"data: {json.dumps({'chunk': result['chunk'], 'type': 'chunk'})}\n\n"
+                    elif result['type'] == 'done':
+                        # 发送完成信号
+                        yield f"data: {json.dumps({'type': 'done', 'message_id': result.get('message_id'), 'user_message_id': result.get('user_message_id')})}\n\n"
+                    elif result['type'] == 'interrupted':
+                        # 发送中断信号
+                        yield f"data: {json.dumps({'type': 'interrupted', 'message': result.get('message'), 'message_id': result.get('message_id'), 'user_message_id': result.get('user_message_id')})}\n\n"
+                        break  # 中断后停止
+                    elif result['type'] == 'error':
+                        # 发送错误信息
+                        yield f"data: {json.dumps({'type': 'error', 'error': result.get('error')})}\n\n"
+            finally:
+                # 清理停止检查器
+                with _checkers_lock:
+                    if checker_key in _stop_checkers and _stop_checkers[checker_key] == stop_checker:
+                        del _stop_checkers[checker_key]
+        
+        # 返回流式响应
+        return Response(
+            stream_with_context(generate_stream()),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no'
+            }
         )
-    
-    # 返回流式响应
-    return Response(
-        stream_with_context(generate_stream()),
-        mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'X-Accel-Buffering': 'no'
-        }
-    )
-
+    except Exception as e:
+        import traceback
+        error_detail = traceback.format_exc()
+        print(f"发送消息失败: {str(e)}")
+        print(f"详细错误: {error_detail}")
+        return jsonify({'error': f'发送消息失败: {str(e)}'}), 500
 
 @api.route('/conversations/<int:conversation_id>/messages/<int:message_id>/responses', methods=['POST'])
 @login_required
@@ -176,129 +106,155 @@ def generate_model_response(conversation_id, message_id):
     为指定用户消息生成模型回答（Peer 架构）
     接受用户消息 ID，为该用户消息生成指定模型的回答
     """
-    # 验证会话是否存在和所有权
-    conversation = Conversation.query.get(conversation_id)
-    if not conversation:
-        return jsonify({'error': '会话不存在'}), 404
-    if conversation.user_id != current_user.id:
-        return jsonify({'error': 'Unauthorized'}), 403
-    
-    # 验证用户消息是否存在且属于当前会话
-    user_message = Message.query.get(message_id)
-    if not user_message:
-        return jsonify({'error': '消息不存在'}), 404
-    if user_message.conversation_id != conversation_id:
-        return jsonify({'error': '消息不属于当前会话'}), 400
-    if user_message.role != 'user':
-        return jsonify({'error': '只能为用户消息生成模型回答'}), 400
-    
-    # 获取请求参数
-    data = request.get_json() or {}
-    model_name = data.get('model', 'qwen-max')  # 默认使用 qwen-max
-    
-    # 检查是否已经存在该模型的回答
-    existing_response = Message.query.filter_by(
-        conversation_id=conversation_id,
-        role='assistant',
-        model=model_name
-    ).filter(
-        Message.order_index > user_message.order_index
-    ).order_by(Message.order_index.asc()).first()
-    
-    # 如果已存在该模型的回答，返回错误
-    if existing_response:
-        # 检查是否是在该用户消息之后生成的
-        next_user_message = Message.query.filter_by(
-            conversation_id=conversation_id,
-            role='user'
-        ).filter(
-            Message.order_index > user_message.order_index
-        ).order_by(Message.order_index.asc()).first()
+    try:
+        if not current_user or not current_user.is_authenticated:
+            return jsonify({'error': '未登录'}), 401
         
-        if not next_user_message or existing_response.order_index < next_user_message.order_index:
-            return jsonify({'error': f'该用户消息已有 {model_name} 模型的回答'}), 400
-    
-    # 使用流式输出
-    def generate_stream():
-        yield from _generate_assistant_response_stream(
-            conversation_id=conversation_id,
-            user_message=user_message,
-            model_name=model_name,
-            precomputed_order_index=None,  # 流式后计算
-            auto_title=False  # 按需生成不处理标题
+        # 使用 core 层的 Conversation.get_by_id() 方法获取会话
+        conversation = Conversation.get_by_id(conversation_id)
+        if not conversation:
+            return jsonify({'error': '会话不存在'}), 404
+        if conversation.user_id != current_user.id:
+            return jsonify({'error': 'Unauthorized'}), 403
+        
+        # 使用 core 层的 Message.get_by_id() 方法获取用户消息
+        user_message = Message.get_by_id(message_id)
+        if not user_message:
+            return jsonify({'error': '消息不存在'}), 404
+        if user_message.conversation_id != conversation_id:
+            return jsonify({'error': '消息不属于当前会话'}), 400
+        if user_message.role != 'user':
+            return jsonify({'error': '只能为用户消息生成模型回答'}), 400
+        
+        # 获取请求参数
+        data = request.get_json() or {}
+        model_name = data.get('model', 'qwen-max')  # 默认使用 qwen-max
+        
+        # 使用 Message.list() 方法检查是否已经存在该模型的回答
+        messages = Message.list(conversation_id=conversation_id, order_by="order_index")
+        
+        # 查找在该用户消息之后、该模型的回答
+        existing_response = None
+        for msg in messages:
+            if (msg.order_index > user_message.order_index and 
+                msg.role == 'assistant' and 
+                msg.model == model_name):
+                existing_response = msg
+                break
+        
+        # 如果已存在该模型的回答，检查是否是在该用户消息之后、下一个用户消息之前生成的
+        if existing_response:
+            # 查找下一个用户消息
+            next_user_message = None
+            for msg in messages:
+                if msg.order_index > user_message.order_index and msg.role == 'user':
+                    next_user_message = msg
+                    break
+            
+            # 如果回答在下一个用户消息之前，说明是为该用户消息生成的
+            if not next_user_message or existing_response.order_index < next_user_message.order_index:
+                return jsonify({'error': f'该用户消息已有 {model_name} 模型的回答'}), 400
+        
+        # 创建停止检查器并存储
+        stop_checker = WebStopChecker()
+        checker_key = (conversation_id, current_user.id)
+        
+        with _checkers_lock:
+            # 如果已存在旧的检查器，先清理
+            if checker_key in _stop_checkers:
+                old_checker = _stop_checkers[checker_key]
+                old_checker.set_stop()  # 停止旧的生成
+            _stop_checkers[checker_key] = stop_checker
+        
+        # 使用 Conversation.send_message() 方法的对比模式（优先使用 coremodels，返回迭代器）
+        def generate_stream():
+            try:
+                for result in conversation.send_message(
+                    user_message_id=message_id,
+                    model_name=model_name,
+                    save_response=True,  # 保存回答到数据库
+                    return_iterator=True,  # 返回迭代器，不打印到控制台
+                    should_stop=stop_checker.should_stop  # 传递停止检查器
+                ):
+                    if result['type'] == 'chunk':
+                        # 发送数据块
+                        yield f"data: {json.dumps({'chunk': result['chunk'], 'type': 'chunk'})}\n\n"
+                    elif result['type'] == 'done':
+                        # 发送完成信号
+                        yield f"data: {json.dumps({'type': 'done', 'message_id': result.get('message_id'), 'user_message_id': result.get('user_message_id')})}\n\n"
+                    elif result['type'] == 'interrupted':
+                        # 发送中断信号
+                        yield f"data: {json.dumps({'type': 'interrupted', 'message': result.get('message'), 'message_id': result.get('message_id'), 'user_message_id': result.get('user_message_id')})}\n\n"
+                        break  # 中断后停止
+                    elif result['type'] == 'error':
+                        # 发送错误信息
+                        yield f"data: {json.dumps({'type': 'error', 'error': result.get('error')})}\n\n"
+            finally:
+                # 清理停止检查器
+                with _checkers_lock:
+                    if checker_key in _stop_checkers and _stop_checkers[checker_key] == stop_checker:
+                        del _stop_checkers[checker_key]
+        
+        # 返回流式响应
+        return Response(
+            stream_with_context(generate_stream()),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no'
+            }
         )
-    
-    # 返回流式响应
-    return Response(
-        stream_with_context(generate_stream()),
-        mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'X-Accel-Buffering': 'no'
-        }
-    )
+    except Exception as e:
+        import traceback
+        error_detail = traceback.format_exc()
+        print(f"生成模型回答失败: {str(e)}")
+        print(f"详细错误: {error_detail}")
+        return jsonify({'error': f'生成模型回答失败: {str(e)}'}), 500
 
 
-@api.route('/conversations/<int:conversation_id>/messages/partial', methods=['POST'])
+@api.route('/conversations/<int:conversation_id>/messages/stop', methods=['POST'])
 @login_required
-def save_partial_message(conversation_id):
-    """保存部分消息（用于暂停流式输出时）"""
-    # 验证会话是否存在和所有权
-    conversation = Conversation.query.get(conversation_id)
-    if not conversation:
-        return jsonify({'error': '会话不存在'}), 404
-    if conversation.user_id != current_user.id:
-        return jsonify({'error': 'Unauthorized'}), 403
+def stop_message_generation(conversation_id):
+    """
+    停止当前会话的消息生成（软中断）
     
-    data = request.get_json()
-    content = data.get('content', '')
+    通过设置停止标志来中断正在进行的流式生成，而不是直接断开连接
+    这样可以确保：
+    1. 已生成的内容能正常保存
+    2. 前端能收到 interrupted 消息
+    3. 流程更可控
+    """
+    try:
+        if not current_user or not current_user.is_authenticated:
+            return jsonify({'error': '未登录'}), 401
+        
+        # 验证会话是否存在且属于当前用户
+        conversation = Conversation.get_by_id(conversation_id)
+        if not conversation:
+            return jsonify({'error': '会话不存在'}), 404
+        if conversation.user_id != current_user.id:
+            return jsonify({'error': 'Unauthorized'}), 403
+        
+        # 获取并设置停止标志
+        checker_key = (conversation_id, current_user.id)
+        with _checkers_lock:
+            if checker_key in _stop_checkers:
+                stop_checker = _stop_checkers[checker_key]
+                stop_checker.set_stop()
+                return jsonify({
+                    'success': True,
+                    'message': '已发送停止信号'
+                })
+            else:
+                # 没有正在进行的生成
+                return jsonify({
+                    'success': False,
+                    'message': '当前没有正在进行的生成'
+                })
     
-    if not content:
-        return jsonify({'error': 'Content is required'}), 400
-    
-    # 获取当前消息数量，用于设置 order_index
-    message_count = Message.query.filter_by(
-        conversation_id=conversation_id
-    ).count()
-    
-    # 检查是否已有未完成的AI消息（最后一条消息是assistant且内容匹配）
-    last_message = Message.query.filter_by(
-        conversation_id=conversation_id
-    ).order_by(Message.order_index.desc()).first()
-    
-    if last_message and last_message.role == 'assistant' and last_message.content == content:
-        # 消息已存在且内容相同，无需重复保存
-        return jsonify({
-            'id': last_message.id,
-            'message': 'Message already saved'
-        })
-    
-    # 创建或更新AI消息
-    # 检查最后一条消息是否是未完成的AI消息（内容较短，可能是部分内容）
-    if (last_message and last_message.role == 'assistant' and 
-        len(content) > len(last_message.content) and 
-        content.startswith(last_message.content)):
-        # 更新现有消息（内容更长，说明是更新）
-        last_message.content = content
-        db.session.commit()
-        return jsonify({
-            'id': last_message.id,
-            'message': 'Message updated'
-        })
-    else:
-        # 创建新消息
-        assistant_message = Message(
-            conversation_id=conversation_id,
-            role='assistant',
-            content=content,
-            order_index=message_count * 2 + 1,
-            model='deepseek-chat'  # 默认使用 deepseek-chat
-        )
-        db.session.add(assistant_message)
-        conversation.updated_at = datetime.now()
-        db.session.commit()
-        return jsonify({
-            'id': assistant_message.id,
-            'message': 'Message saved'
-        })
-
+    except Exception as e:
+        import traceback
+        error_detail = traceback.format_exc()
+        print(f"停止消息生成失败: {str(e)}")
+        print(f"详细错误: {error_detail}")
+        return jsonify({'error': f'停止消息生成失败: {str(e)}'}), 500
