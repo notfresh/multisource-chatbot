@@ -66,12 +66,13 @@ else:
 @cli.command('runserver')
 @click.option('--host', '-h', default='0.0.0.0', help='服务器主机地址')
 @click.option('--port', '-p', default=8000, type=int, help='服务器端口')
-@with_appcontext
 def runserver(host, port):
     """运行开发服务器"""
+    # 直接使用 create_app_for_cli 创建应用实例，避免应用上下文问题
+    app = create_app_for_cli()
     # 使用 Werkzeug 的 run_simple 而不是 app.run()，避免 Flask CLI 警告
     from werkzeug.serving import run_simple
-    run_simple(host, port, current_app, use_reloader=True, use_debugger=True)
+    run_simple(host, port, app, use_reloader=True, use_debugger=True)
 
 if __name__ == '__main__':
     # 设置 FLASK_APP 环境变量以便 Flask-Migrate 能找到应用
