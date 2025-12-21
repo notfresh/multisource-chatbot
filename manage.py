@@ -45,6 +45,11 @@ def create_app_for_cli(info=None):
 # 创建 Flask CLI 组
 cli = FlaskGroup(create_app=create_app_for_cli)
 
+# 为了支持 gunicorn，需要直接创建 app 实例
+# 从环境变量获取配置，默认为 'development'
+flask_config = os.environ.get('FLASK_ENV', 'development')
+app = create_app(flask_config)
+
 # 添加自定义 runserver 命令以保持向后兼容
 @cli.command('runserver')
 @click.option('--host', '-h', default='0.0.0.0', help='服务器主机地址')
