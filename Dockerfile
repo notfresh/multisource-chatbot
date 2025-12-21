@@ -19,12 +19,5 @@ RUN pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
 # copy the source code file to  code directory
 ADD . /code/
 
-# 确保 entrypoint.sh 有执行权限（ADD . /code/ 可能会覆盖权限）
-# 同时处理可能的 Windows 行结束符问题
-RUN chmod +x /code/entrypoint.sh && \
-    sed -i 's/\r$//' /code/entrypoint.sh && \
-    ls -la /code/entrypoint.sh
-
-# 设置 entrypoint
-ENTRYPOINT ["/code/entrypoint.sh"]
+# RUN python manage.py db upgrade
 
