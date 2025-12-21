@@ -51,7 +51,12 @@ cli = FlaskGroup(create_app=create_app_for_cli)
 # 如果是直接运行 python manage.py，则不创建 app（使用 CLI）
 if __name__ != '__main__':
     # gunicorn 或其他 WSGI 服务器导入时创建 app
-    flask_config = os.environ.get('FLASK_ENV', 'development')
+    # 优先使用 FLASK_DEBUG，向后兼容 FLASK_ENV
+    flask_debug = os.environ.get('FLASK_DEBUG')
+    if flask_debug is not None:
+        flask_config = 'development' if flask_debug.lower() in ('1', 'true', 'yes', 'on') else 'production'
+    else:
+        flask_config = os.environ.get('FLASK_ENV', 'development')
     app = create_app(flask_config)
 else:
     # 直接运行 python manage.py 时，不创建 app，由 create_app_for_cli 处理
@@ -64,7 +69,9 @@ else:
 @with_appcontext
 def runserver(host, port):
     """运行开发服务器"""
-    current_app.run(host=host, port=port, debug=True)
+    # 使用 Werkzeug 的 run_simple 而不是 app.run()，避免 Flask CLI 警告
+    from werkzeug.serving import run_simple
+    run_simple(host, port, current_app, use_reloader=True, use_debugger=True)
 
 if __name__ == '__main__':
     # 设置 FLASK_APP 环境变量以便 Flask-Migrate 能找到应用

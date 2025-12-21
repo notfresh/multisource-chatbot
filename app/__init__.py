@@ -70,11 +70,31 @@ def add_shorten_Urls(url_object):
         print("@Log Error __Init__ Line66 add_shorten_Urls ", e, type(e).__name__)
 
 def create_app(flask_config='development', **kwargs):
-    config_name = os.getenv('FLASK_ENV', flask_config)
+    # 优先使用 FLASK_DEBUG，如果没有则使用 FLASK_ENV（向后兼容）
+    # Flask 2.3+ 推荐使用 FLASK_DEBUG 而不是 FLASK_ENV
+    flask_debug = os.getenv('FLASK_DEBUG')
+    if flask_debug is not None:
+        # FLASK_DEBUG 是字符串 '1' 或 'true' 表示 True
+        config_name = 'development' if flask_debug.lower() in ('1', 'true', 'yes', 'on') else 'production'
+    else:
+        # 向后兼容：如果没有 FLASK_DEBUG，使用 FLASK_ENV
+        config_name = os.getenv('FLASK_ENV', flask_config)
     app.config.from_object(CONFIGS[config_name])
     # 确保 SECRET_KEY 是字符串类型
     if 'SECRET_KEY' not in app.config or not isinstance(app.config['SECRET_KEY'], str):
         app.config['SECRET_KEY'] = 'so easy you are'
+    
+    # 修复 SQLAlchemy 1.4.x 兼容性问题：确保 SQLite 数据库 URI 使用绝对路径
+    # Flask-SQLAlchemy 2.4.1 会尝试修改 URL.database 属性，但在 SQLAlchemy 1.4.x 中这是只读的
+    db_uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+    if db_uri and db_uri.startswith('sqlite:///'):
+        db_path = db_uri.replace('sqlite:///', '')
+        if not os.path.isabs(db_path):
+            # 相对路径，转换为绝对路径
+            db_path = os.path.join(app.root_path, '..', db_path)
+            db_path = os.path.abspath(db_path)
+            app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+    
     from . import models # 创建表（Flask-SQLAlchemy 模型）
     # 导入原生 SQLAlchemy 模型（app/core/db.py），让 Flask-Migrate 能够检测到
     from .core.db import ConversationDBModel, MessageDBModel, Base
