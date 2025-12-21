@@ -16,7 +16,6 @@ from .blueprint import api
 _stop_checkers = {}
 _checkers_lock = threading.Lock()
 
-
 @api.route('/conversations/<int:conversation_id>/messages', methods=['POST'])
 @login_required
 def send_message(conversation_id):

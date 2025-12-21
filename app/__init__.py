@@ -24,7 +24,7 @@ import sqlalchemy as sa
 from .models import ShortURL, db, User
 from .plugins import comma_mode
 
-app = Flask(__name__)
+
 
 # redis_client = FlaskRedis()
 mail = Mail()
@@ -70,6 +70,9 @@ def add_shorten_Urls(url_object):
         print("@Log Error __Init__ Line66 add_shorten_Urls ", e, type(e).__name__)
 
 def create_app(flask_config='development', **kwargs):
+    # 每次创建新的 Flask 实例，避免重复注册问题
+    _app = Flask(__name__)
+    
     # 优先使用 FLASK_DEBUG，如果没有则使用 FLASK_ENV（向后兼容）
     # Flask 2.3+ 推荐使用 FLASK_DEBUG 而不是 FLASK_ENV
     flask_debug = os.getenv('FLASK_DEBUG')
@@ -79,44 +82,45 @@ def create_app(flask_config='development', **kwargs):
     else:
         # 向后兼容：如果没有 FLASK_DEBUG，使用 FLASK_ENV
         config_name = os.getenv('FLASK_ENV', flask_config)
-    app.config.from_object(CONFIGS[config_name])
+    _app.config.from_object(CONFIGS[config_name])
     # 确保 SECRET_KEY 是字符串类型
-    if 'SECRET_KEY' not in app.config or not isinstance(app.config['SECRET_KEY'], str):
-        app.config['SECRET_KEY'] = 'so easy you are'
+    if 'SECRET_KEY' not in _app.config or not isinstance(_app.config['SECRET_KEY'], str):
+        _app.config['SECRET_KEY'] = 'so easy you are'
     from . import models # 创建表（Flask-SQLAlchemy 模型）
     # 导入原生 SQLAlchemy 模型（app/core/db.py），让 Flask-Migrate 能够检测到
     from .core.db import ConversationDBModel, MessageDBModel, Base
     from . import errorhandlers
-    errorhandlers.init_app(app)
+    errorhandlers.init_app(_app)
     from . import db
-    db.init_app(app)
+    db.init_app(_app)
     
     # 初始化 Flask-Migrate
     from flask_migrate import Migrate
-    migrate = Migrate(app, db)
+    migrate = Migrate(_app, db)
     
-    bootstrap = Bootstrap(app)
-    # redis_client.init_app(app)
-    login_manager.init_app(app)
-    mail.init_app(app)
+    bootstrap = Bootstrap(_app)
+    # redis_client.init_app(_app)
+    login_manager.init_app(_app)
+    mail.init_app(_app)
 
     from .auth import auth as auth_blueprint
-    app.register_blueprint(auth_blueprint, url_prefix='/auth')
+    _app.register_blueprint(auth_blueprint, url_prefix='/auth')
     
     # 注册 API 蓝图
     from .api import api as api_blueprint
-    app.register_blueprint(api_blueprint)
+    _app.register_blueprint(api_blueprint)
     
     # 注册聊天页面路由
-    @app.route('/chat')
+    @_app.route('/chat')
     @login_required
     def chat():
         return render_template('chat.html')
     
-    with app.app_context():
+    with _app.app_context():
         init_shorten_urls(None)
-    return app
+    return _app
 
+app = create_app()
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
