@@ -43,9 +43,25 @@ except ImportError:
     # 如果导入失败，只使用 Flask-SQLAlchemy 的 metadata
     target_metadata = current_app.extensions['migrate'].db.metadata
 
+# 直接从 Flask 配置获取数据库 URI，避免访问 engine.url（SQLAlchemy 1.4.x 兼容性问题）
+# 对于 SQLite，确保使用绝对路径
+db_uri = current_app.config.get('SQLALCHEMY_DATABASE_URI')
+if db_uri and db_uri.startswith('sqlite:///'):
+    # SQLite 路径处理：如果是相对路径，转换为绝对路径
+    import os
+    db_path = db_uri.replace('sqlite:///', '')
+    if not os.path.isabs(db_path):
+        # 相对路径，转换为绝对路径
+        db_path = os.path.join(current_app.root_path, '..', db_path)
+        db_path = os.path.abspath(db_path)
+        db_uri = f'sqlite:///{db_path}'
+else:
+    # 非 SQLite 数据库，直接使用配置的 URI
+    pass
+
 config.set_main_option(
     'sqlalchemy.url',
-    str(current_app.extensions['migrate'].db.engine.url).replace('%', '%%'))
+    db_uri.replace('%', '%%') if db_uri else 'sqlite:///app.sqlite')
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
