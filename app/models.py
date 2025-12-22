@@ -55,13 +55,29 @@ class User(db.Model, UserMixin):
 
     ###
     def generate_confirmation_token(self, expiration=3600):
-        # 确保 SECRET_KEY 是字符串
-        secret_key = str(current_app.config.get('SECRET_KEY', 'default-secret-key'))
-        s = Serializer(secret_key, expiration)
+        # 确保 SECRET_KEY 是字符串，然后转换为 bytes（itsdangerous 需要 bytes）
+        secret_key = current_app.config.get('SECRET_KEY', 'default-secret-key')
+        # print("@Log models.py 60 secret_key is ", secret_key)
+        from itsdangerous import URLSafeTimedSerializer
+        # import inspect
+        # import itsdangerous
+        # print(">>> REAL itsdangerous version in runtime:", itsdangerous.__version__)
+        # print(">>> Path:", itsdangerous.__file__)
+        
+        # print("URLSafeTimedSerializer.__init__ args:", inspect.signature(URLSafeTimedSerializer.__init__))
+        s = URLSafeTimedSerializer(
+            secret_key,     # 可选，但建议显式指定（str 或 bytes）
+        )
+        # s = Serializer(secret_key, expiration)
         return s.dumps({'confirm': self.id})
 
     def confirm(self, token):
-        secret_key = str(current_app.config.get('SECRET_KEY', 'default-secret-key'))
+        # 确保 SECRET_KEY 是字符串，然后转换为 bytes（itsdangerous 需要 bytes）
+        secret_key = current_app.config.get('SECRET_KEY', 'default-secret-key')
+        if not isinstance(secret_key, (str, bytes)):
+            secret_key = str(secret_key)
+        if isinstance(secret_key, str):
+            secret_key = secret_key.encode('utf-8')
         s = Serializer(secret_key)
         try:
             data = s.loads(token)
@@ -74,12 +90,22 @@ class User(db.Model, UserMixin):
         return True
 
     def generate_reset_token(self, expiration=3600):
-        secret_key = str(current_app.config.get('SECRET_KEY', 'default-secret-key'))
+        # 确保 SECRET_KEY 是字符串，然后转换为 bytes（itsdangerous 需要 bytes）
+        secret_key = current_app.config.get('SECRET_KEY', 'default-secret-key')
+        if not isinstance(secret_key, (str, bytes)):
+            secret_key = str(secret_key)
+        if isinstance(secret_key, str):
+            secret_key = secret_key.encode('utf-8')
         s = Serializer(secret_key, expiration)
         return s.dumps({'reset': self.id})
 
     def reset_password(self, token, new_password):
-        secret_key = str(current_app.config.get('SECRET_KEY', 'default-secret-key'))
+        # 确保 SECRET_KEY 是字符串，然后转换为 bytes（itsdangerous 需要 bytes）
+        secret_key = current_app.config.get('SECRET_KEY', 'default-secret-key')
+        if not isinstance(secret_key, (str, bytes)):
+            secret_key = str(secret_key)
+        if isinstance(secret_key, str):
+            secret_key = secret_key.encode('utf-8')
         s = Serializer(secret_key)
         try:
             data = s.loads(token)
@@ -92,12 +118,22 @@ class User(db.Model, UserMixin):
         return True
 
     def generate_email_change_token(self, new_email, expiration=3600):
-        secret_key = str(current_app.config.get('SECRET_KEY', 'default-secret-key'))
+        # 确保 SECRET_KEY 是字符串，然后转换为 bytes（itsdangerous 需要 bytes）
+        secret_key = current_app.config.get('SECRET_KEY', 'default-secret-key')
+        if not isinstance(secret_key, (str, bytes)):
+            secret_key = str(secret_key)
+        if isinstance(secret_key, str):
+            secret_key = secret_key.encode('utf-8')
         s = Serializer(secret_key, expiration)
         return s.dumps({'change_email': self.id, 'new_email': new_email})
 
     def change_email(self, token):
-        secret_key = str(current_app.config.get('SECRET_KEY', 'default-secret-key'))
+        # 确保 SECRET_KEY 是字符串，然后转换为 bytes（itsdangerous 需要 bytes）
+        secret_key = current_app.config.get('SECRET_KEY', 'default-secret-key')
+        if not isinstance(secret_key, (str, bytes)):
+            secret_key = str(secret_key)
+        if isinstance(secret_key, str):
+            secret_key = secret_key.encode('utf-8')
         s = Serializer(secret_key)
         try:
             data = s.loads(token)
