@@ -261,6 +261,7 @@ class ChatManager:
             except ImportError:
                 from langchain.schema import HumanMessage
             
+            # 往下10行，表示构建完整的对话历史
             messages = []
             if hasattr(conversation, "memory") and hasattr(conversation.memory, "chat_memory"):
                 chat_memory = conversation.memory.chat_memory
