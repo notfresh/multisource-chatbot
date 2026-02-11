@@ -7,6 +7,7 @@
     python core_manage.py shell           # 打开交互式 Python shell
     python core_manage.py test            # 运行测试示例
     python core_manage.py create-demo     # 创建演示数据
+    python core_manage.py 你好，天气怎么样  # 直接提问（自动创建新会话）
 """
 
 import os
@@ -37,6 +38,9 @@ if sys.platform == 'win32':
 
 # 添加项目路径
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+
+# 记录上一次会话 ID
+LAST_CONVERSATION_FILE = os.path.join(os.path.abspath(os.path.dirname(__file__)), '.last_conversation_id')
 
 # 导入核心层的类
 from app.core.coremodels import (
@@ -307,7 +311,7 @@ def create_demo():
         traceback.print_exc()
 
 
-def main():
+def cli():
     """主函数"""
     import argparse
     
@@ -339,6 +343,62 @@ def main():
     elif args.command == 'create-demo':
         create_demo()
 
+def add_default_prompt(question):
+    question += "，简洁回答"
+    return question
+
+def load_last_conversation_id():
+    try:
+        if not os.path.exists(LAST_CONVERSATION_FILE):
+            return None
+        with open(LAST_CONVERSATION_FILE, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+        return int(content) if content else None
+    except Exception:
+        return None
+
+def save_last_conversation_id(conversation_id: int):
+    try:
+        with open(LAST_CONVERSATION_FILE, 'w', encoding='utf-8') as f:
+            f.write(str(conversation_id))
+    except Exception:
+        pass
+
+def main():
+    # 如果直接传入问题（不带命令），则自动创建新会话并提问
+    if len(sys.argv) > 1:
+        args = sys.argv[1:]
+        first_arg = args[0]
+        commands = ('shell', 'test', 'create-demo')
+        # 只有在仅传入命令时才走 CLI；否则全部当作问题拼接
+        if first_arg in commands and len(args) == 1:
+            cli()
+            return
+
+        use_continue = False
+        if '-c' in args or '--continue' in args:
+            use_continue = True
+            args = [arg for arg in args if arg not in ('-c', '--continue')]
+
+        question = " ".join(args).strip()
+        if question:
+            if use_continue:
+                last_id = load_last_conversation_id()
+                conv = Conversation.get_by_id(last_id) if last_id else None
+            else:
+                conv = None
+
+            if conv is None:
+                # 每次都创建新会话，user_id 默认为 1
+                conv = Conversation.create(user_id=1)
+                print(f"新会话已创建，ID: {conv.id}")
+
+            save_last_conversation_id(conv.id)
+            conv.send_message(add_default_prompt(question))
+            return
+
+    # 否则走原有 CLI
+    cli()
 
 if __name__ == '__main__':
     main()
